@@ -9,6 +9,7 @@ const envSchema = z.object({
   BOT_WEBHOOK_PATH: z.string().default("/webhook"),
   BOT_WEBHOOK_PORT: z.coerce.number().default(8080),
   DATABASE_URL: z.string().min(1),
+  DB_SSL: z.enum(["true", "false"]).default("false"),
   REDIS_URL: z.string().optional(),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   LOG_LEVEL: z.string().default("info"),
