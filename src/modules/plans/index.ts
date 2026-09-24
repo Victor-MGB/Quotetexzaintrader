@@ -13,7 +13,9 @@ async function requireSession(ctx: AppContext): Promise<boolean> {
     touch(id);
     return true;
   }
-  await ctx.answerCallbackQuery("Session expired").catch(() => undefined);
+  if (ctx.callbackQuery) {
+    await ctx.answerCallbackQuery("Session expired").catch(() => undefined);
+  }
   await ctx.reply(
     `⏰ Your session is inactive or expired.
 

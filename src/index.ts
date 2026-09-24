@@ -19,6 +19,10 @@ bot.use(auth);
 bot.use(profile);
 bot.use(admin);
 
+bot.catch((err) => {
+  logger.error({ err }, "handler error (non-fatal)");
+});
+
 async function main(): Promise<void> {
   await checkDb();
   await loadAccess();
