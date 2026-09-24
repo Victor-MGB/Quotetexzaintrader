@@ -2,6 +2,7 @@ import { Composer, InlineKeyboard, type NextFunction } from "grammy";
 import type { AppContext } from "../../core/bot.js";
 import { hashPassword, verifyPassword } from "./password.js";
 import { clearFlow, getFlow, setFlow } from "./state.js";
+import { isLoggedIn, login, logout } from "./session.js";
 import { createUser, findUserByEmail, findUserByTelegramId } from "./users.js";
 
 const auth = new Composer<AppContext>();
@@ -70,6 +71,12 @@ auth.callbackQuery("auth:cancel", async (ctx) => {
   await ctx.editMessageText(`Cancelled. Use the menu to continue.`);
 });
 
+auth.command("logout", async (ctx) => {
+  logout(String(ctx.from?.id ?? 0));
+  clearFlow(String(ctx.from?.id ?? 0));
+  await ctx.reply("You've been logged out. Login again to continue.", { reply_markup: loginKeyboard });
+});
+
 auth.on("message:text", async (ctx, next: NextFunction) => {
   const data = extractUser(ctx);
   if (!data) return next();
@@ -122,6 +129,7 @@ Now enter a password (minimum ${MIN_PASSWORD_LENGTH} characters).`,
     const passwordHash = await hashPassword(text);
     const user = await createUser({ ...data, email: entry.email ?? "", passwordHash });
     clearFlow(data.telegramId);
+    login(data.telegramId);
 
     if (!user) {
       await ctx.reply("An account for this Telegram user already exists. Login instead.", {
@@ -133,8 +141,8 @@ Now enter a password (minimum ${MIN_PASSWORD_LENGTH} characters).`,
     await ctx.reply(
       `Account created${data.username ? ` for @${data.username}` : ""}. 🎉
 
-Login to view investment plans.`,
-      { reply_markup: loginKeyboard },
+You're logged in. Choose an investment plan to get started.`,
+      { reply_markup: new InlineKeyboard().text("💼 View Plans", "plans:list") },
     );
     return;
   }
@@ -154,6 +162,7 @@ Login to view investment plans.`,
       return;
     }
     clearFlow(data.telegramId);
+    login(data.telegramId);
     await ctx.reply(
       `Logged in as ${data.username ? `@${data.username}` : user.firstName ?? "member"}. ✅
 

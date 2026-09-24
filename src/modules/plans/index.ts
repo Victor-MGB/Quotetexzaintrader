@@ -1,12 +1,30 @@
 import { Composer, InlineKeyboard } from "grammy";
 import type { AppContext } from "../../core/bot.js";
 import { loginKeyboard, registerKeyboard } from "../auth/index.js";
+import { isLoggedIn, touch } from "../auth/session.js";
 import { findUserByTelegramId } from "../auth/users.js";
 import { PLANS, planByKey } from "./plans.js";
 
 const plans = new Composer<AppContext>();
 
+async function requireSession(ctx: AppContext): Promise<boolean> {
+  const id = String(ctx.from?.id ?? 0);
+  if (isLoggedIn(id)) {
+    touch(id);
+    return true;
+  }
+  await ctx.answerCallbackQuery("Session expired").catch(() => undefined);
+  await ctx.reply(
+    `⏰ Your session is inactive or expired.
+
+For your security, please login again before performing any task.`,
+    { reply_markup: loginKeyboard },
+  );
+  return false;
+}
+
 plans.command("plans", async (ctx) => {
+  if (!(await requireSession(ctx))) return;
   await ctx.reply(`💰 <b>INVESTMENT PLANS</b>
 
 Choose a plan to see full details.`, {
@@ -25,6 +43,7 @@ export function planListKeyboard(): InlineKeyboard {
 }
 
 plans.callbackQuery("plans:list", async (ctx) => {
+  if (!(await requireSession(ctx))) return;
   await ctx.answerCallbackQuery();
   await ctx.editMessageText(
     `💰 <b>INVESTMENT PLANS</b>
@@ -38,29 +57,41 @@ plans.callbackQuery("plans:view", async (ctx) => {
   const from = ctx.from;
   if (!from) return;
 
-  const user = await findUserByTelegramId(String(from.id));
+  const id = String(from.id);
 
-  if (!user) {
+  if (!isLoggedIn(id)) {
+    const user = await findUserByTelegramId(id);
     await ctx.answerCallbackQuery();
-    await ctx.editMessageText(
-      `You need an account to view investment plans.
+    if (!user) {
+      await ctx.editMessageText(
+        `You need an account to view investment plans.
 
 Register to unlock access to available packages.`,
-      { reply_markup: registerKeyboard },
-    );
+        { reply_markup: registerKeyboard },
+      );
+    } else {
+      await ctx.editMessageText(
+        `Welcome back${from.username ? `, @${from.username}` : ""}.
+
+Login to continue.`,
+        { reply_markup: loginKeyboard },
+      );
+    }
     return;
   }
 
+  touch(id);
   await ctx.answerCallbackQuery();
   await ctx.editMessageText(
-    `Welcome back${from.username ? `, @${from.username}` : ""}.
+    `💰 <b>INVESTMENT PLANS</b>
 
-Plans are ready. Login to continue.`,
-    { reply_markup: loginKeyboard },
+Choose a plan to see full details.`,
+    { reply_markup: planListKeyboard(), parse_mode: "HTML" },
   );
 });
 
 plans.callbackQuery(/^plans:detail_(.+)$/, async (ctx) => {
+  if (!(await requireSession(ctx))) return;
   const key = ctx.match[1];
   const plan = key ? planByKey(key) : undefined;
   if (!plan) {
@@ -80,7 +111,8 @@ plans.callbackQuery(/^plans:detail_(.+)$/, async (ctx) => {
 💵 <b>Min:</b>      $${plan.min}
 💵 <b>Max:</b>      ${maxText}
 
-💬 <b>What you invest in:</b> ${plan.tagline} You deposit, we trade crypto — your profit is credited automatically when the time ends.
+💬 <b>What you invest in:</b>
+${plan.message}
 
 <i>Start your journey to financial freedom today.</i>`,
     { reply_markup: kb, parse_mode: "HTML" },
@@ -88,6 +120,7 @@ plans.callbackQuery(/^plans:detail_(.+)$/, async (ctx) => {
 });
 
 plans.callbackQuery(/^plans:deposit_(.+)$/, async (ctx) => {
+  if (!(await requireSession(ctx))) return;
   const key = ctx.match[1];
   const plan = key ? planByKey(key) : undefined;
   if (!plan) {

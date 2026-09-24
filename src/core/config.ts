@@ -14,6 +14,7 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   LOG_LEVEL: z.string().default("info"),
   ADMIN_IDS: z.string().default(""),
+  SESSION_TIMEOUT_MINUTES: z.coerce.number().default(30),
 });
 
 const parsed = envSchema.safeParse(process.env);
