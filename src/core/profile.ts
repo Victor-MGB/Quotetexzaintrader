@@ -5,11 +5,15 @@ import { logger } from "./logger.js";
 const NAME = "QuotexZainTrader";
 
 const DESCRIPTION = `
-Invest and grow your funds with QuotexZainTrader.
+QuotexZainTrader is a NEW YORK investment Bot that creates opportunities for investors to maximise their profits within few hours of making deposits.
 
-High-yield investment plans, instant withdrawals, secure wallet and 24/7 referral bonuses.
+INVESTMENT PLANS:
+STARTER - 10% after 6 Hours ($50-$150)
+CLASSIC - 12% after 10 Hours ($200-$350)
+GOLD - 20% after 24 hours ($400-$550)
+AWARD - 25% after 4 days ($1000-Unlimited)
 
-Press Start to create your account and see available plans.
+Start your journey to financial freedom with QuotexZainTrader today.
 `.trim();
 
 const SHORT_DESCRIPTION = "High-yield investment plans. Start your account and grow your balance.";

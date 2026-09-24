@@ -157,7 +157,8 @@ Login to view investment plans.`,
     await ctx.reply(
       `Logged in as ${data.username ? `@${data.username}` : user.firstName ?? "member"}. ✅
 
-Investment plans are coming in the next step.`,
+Choose an investment plan to get started.`,
+      { reply_markup: new InlineKeyboard().text("💼 View Plans", "plans:list") },
     );
   }
 });
