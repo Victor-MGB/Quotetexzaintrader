@@ -122,7 +122,7 @@ ${plan.message}
 });
 
 const mainMenuKeyboard = () =>
-  new InlineKeyboard().url("🌐 Chat Support", "https://t.me/QuotexZainTrader_Bot").row().text("💼 View Plans", "plans:list");
+  new InlineKeyboard().text("🌐 Chat Support", "support:start").row().text("💼 View Plans", "plans:list");
 
 function walletKeyboard(planKey: string): InlineKeyboard {
   return new InlineKeyboard()

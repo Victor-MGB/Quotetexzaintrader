@@ -9,6 +9,7 @@ import { plans } from "./modules/plans/index.js";
 import { auth } from "./modules/auth/index.js";
 import { admin, adminGate } from "./modules/admin/index.js";
 import { profile } from "./modules/profile/index.js";
+import { support } from "./modules/support/index.js";
 import { loadAccess } from "./modules/admin/store.js";
 
 bot.use(rateLimit);
@@ -18,6 +19,7 @@ bot.use(plans);
 bot.use(auth);
 bot.use(profile);
 bot.use(admin);
+bot.use(support);
 
 bot.catch((err) => {
   logger.error({ err }, "handler error (non-fatal)");
