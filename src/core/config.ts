@@ -13,6 +13,7 @@ const envSchema = z.object({
   REDIS_URL: z.string().optional(),
   NODE_ENV: z.enum(["development", "production", "test"]).default("development"),
   LOG_LEVEL: z.string().default("info"),
+  ADMIN_IDS: z.string().default(""),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -24,3 +25,4 @@ if (!parsed.success) {
 
 export const env = parsed.data;
 export const isProd = env.NODE_ENV === "production";
+export const adminIds = env.ADMIN_IDS.split(",").map((s) => s.trim()).filter(Boolean);

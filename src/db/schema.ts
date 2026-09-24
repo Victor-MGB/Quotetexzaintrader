@@ -20,3 +20,13 @@ export const users = pgTable(
     uniqueIndex("users_email_idx").on(t.email),
   ],
 );
+
+export const whitelist = pgTable("whitelist", {
+  telegramId: text("telegram_id").primaryKey(),
+  addedAt: timestamp("added_at").notNull().defaultNow(),
+});
+
+export const settings = pgTable("settings", {
+  key: text("key").primaryKey(),
+  value: text("value").notNull(),
+});
