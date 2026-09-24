@@ -121,6 +121,23 @@ ${plan.message}
   );
 });
 
+const mainMenuKeyboard = () =>
+  new InlineKeyboard().url("🌐 Chat Support", "https://t.me/QuotexZainTrader_Bot").row().text("💼 View Plans", "plans:list");
+
+function walletKeyboard(planKey: string): InlineKeyboard {
+  return new InlineKeyboard()
+    .text("₿ Bitcoin", `plans:wallet_${planKey}_btc`)
+    .row()
+    .text("💵 USDT (TRC20)", `plans:wallet_${planKey}_trc20`)
+    .row()
+    .text("🪙 Tron (TRX)", `plans:wallet_${planKey}_trx`)
+    .row()
+    .text("◆ Ethereum (ETH)", `plans:wallet_${planKey}_eth`)
+    .row()
+    .text("⬅ Back", "plans:list")
+    .text("🏠 Main Menu", "plans:main");
+}
+
 plans.callbackQuery(/^plans:deposit_(.+)$/, async (ctx) => {
   if (!(await requireSession(ctx))) return;
   const key = ctx.match[1];
@@ -131,7 +148,28 @@ plans.callbackQuery(/^plans:deposit_(.+)$/, async (ctx) => {
   }
 
   await ctx.answerCallbackQuery();
-  await ctx.reply(`💳 Deposits for the ${plan.name} plan are being enabled next (Paystack).`, {
+  await ctx.editMessageText(
+    `💳 <b>Fund your ${plan.name} investment</b>
+
+Send your deposit to any of the wallets below and your balance will be credited.
+
+<i>Choose your payment method:</i>`,
+    { reply_markup: walletKeyboard(plan.key), parse_mode: "HTML" },
+  );
+});
+
+plans.callbackQuery(/^plans:wallet_(.+)_(btc|trc20|trx|eth)$/, async (ctx) => {
+  if (!(await requireSession(ctx))) return;
+  await ctx.answerCallbackQuery("Addresses coming next");
+});
+
+plans.callbackQuery("plans:main", async (ctx) => {
+  if (!(await requireSession(ctx))) return;
+  await ctx.answerCallbackQuery();
+  await ctx.editMessageText(`🏠 <b>Main Menu</b>
+
+What would you like to do?`, {
+    reply_markup: mainMenuKeyboard(),
     parse_mode: "HTML",
   });
 });
