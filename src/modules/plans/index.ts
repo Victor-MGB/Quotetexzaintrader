@@ -80,6 +80,8 @@ plans.callbackQuery(/^plans:detail_(.+)$/, async (ctx) => {
 💵 <b>Min:</b>      $${plan.min}
 💵 <b>Max:</b>      ${maxText}
 
+💬 <b>What you invest in:</b> ${plan.tagline} You deposit, we trade crypto — your profit is credited automatically when the time ends.
+
 <i>Start your journey to financial freedom today.</i>`,
     { reply_markup: kb, parse_mode: "HTML" },
   );
