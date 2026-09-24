@@ -1,11 +1,16 @@
-import { Composer, type NextFunction } from "grammy";
+import { Composer, InlineKeyboard, type NextFunction } from "grammy";
 import type { AppContext } from "../../core/bot.js";
-import { isAdmin, isAllowed, allowUser, disallowUser, listAllowed, setLock, isLocked } from "./store.js";
+import { bot } from "../../core/bot.js";
+import { adminIds } from "../../core/config.js";
+import { logger } from "../../core/logger.js";
+import { isLocked } from "./store.js";
+import { allowUser, disallowUser, isAdmin, isAllowed, listAllowed, setLock } from "./store.js";
 
 const admin = new Composer<AppContext>();
 
 const NOTIFY_COOLDOWN_MS = 15_000;
 const notified = new Map<string, number>();
+const adminNotified = new Set<string>();
 
 export async function adminGate(ctx: AppContext, next: NextFunction): Promise<void> {
   const from = ctx.from;
@@ -13,8 +18,7 @@ export async function adminGate(ctx: AppContext, next: NextFunction): Promise<vo
 
   const id = String(from.id);
 
-  if (isAdmin(id)) return next();
-  if (isAllowed(id)) return next();
+  if (isAdmin(id) || isAllowed(id)) return next();
 
   const now = Date.now();
   if ((notified.get(id) ?? 0) + NOTIFY_COOLDOWN_MS <= now) {
@@ -23,12 +27,50 @@ export async function adminGate(ctx: AppContext, next: NextFunction): Promise<vo
       `Access restricted. This bot is only for approved users.\n\nYour Telegram ID: ${id}\n\nContact the admin to get access.`,
     );
   }
+
+  if (!adminNotified.has(id)) {
+    adminNotified.add(id);
+    await notifyAdmin(from);
+  }
+}
+
+async function notifyAdmin(from: AppContext["from"]): Promise<void> {
+  const id = String(from?.id ?? "");
+  const name = from?.username ? `@${from.username}` : from?.first_name ?? "unknown";
+
+  const keyboard = new InlineKeyboard()
+    .text("Approve", `admin:allow_${id}`)
+    .text("Dismiss", `admin:dismiss_${id}`);
+
+  const text = `❌ Unapproved user tried to use the bot.\n\n${name}\nID: ${id}`;
+
+  for (const adminId of adminIds) {
+    await bot.api
+      .sendMessage(adminId, text, { reply_markup: keyboard })
+      .catch((err) => logger.warn({ err, adminId }, "failed to notify admin"));
+  }
 }
 
 function idFromArgs(ctx: AppContext): string | null {
   const text = typeof ctx.match === "string" ? ctx.match.trim() : "";
   return text && /^\d+$/.test(text) ? text : null;
 }
+
+admin.callbackQuery(/^admin:allow_(\d+)$/, async (ctx) => {
+  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+  const id = ctx.match[1];
+  if (!id) return;
+  await allowUser(id);
+  adminNotified.delete(id);
+  await ctx.answerCallbackQuery("Approved");
+  await ctx.editMessageText(`✅ User ${id} is now allowed.`);
+});
+
+admin.callbackQuery(/^admin:dismiss_(\d+)$/, async (ctx) => {
+  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+  await ctx.answerCallbackQuery("Dismissed");
+  await ctx.editMessageText(`Notification cleared.`);
+});
 
 admin.command("allow", async (ctx) => {
   if (!isAdmin(String(ctx.from?.id ?? 0))) return;
@@ -38,6 +80,7 @@ admin.command("allow", async (ctx) => {
     return;
   }
   await allowUser(id);
+  adminNotified.delete(id);
   await ctx.reply(`User ${id} is now allowed.`);
 });
 
