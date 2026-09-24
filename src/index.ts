@@ -8,6 +8,7 @@ import { start } from "./modules/start/index.js";
 import { plans } from "./modules/plans/index.js";
 import { auth } from "./modules/auth/index.js";
 import { admin, adminGate } from "./modules/admin/index.js";
+import { profile } from "./modules/profile/index.js";
 import { loadAccess } from "./modules/admin/store.js";
 
 bot.use(rateLimit);
@@ -15,6 +16,7 @@ bot.use(adminGate);
 bot.use(start);
 bot.use(plans);
 bot.use(auth);
+bot.use(profile);
 bot.use(admin);
 
 async function main(): Promise<void> {

@@ -6,6 +6,15 @@ import { PLANS, planByKey } from "./plans.js";
 
 const plans = new Composer<AppContext>();
 
+plans.command("plans", async (ctx) => {
+  await ctx.reply(`💰 <b>INVESTMENT PLANS</b>
+
+Choose a plan to see full details.`, {
+    reply_markup: planListKeyboard(),
+    parse_mode: "HTML",
+  });
+});
+
 export function planListKeyboard(): InlineKeyboard {
   const kb = new InlineKeyboard();
   for (const p of PLANS) {

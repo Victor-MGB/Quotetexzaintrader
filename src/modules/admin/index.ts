@@ -3,6 +3,7 @@ import type { AppContext } from "../../core/bot.js";
 import { bot } from "../../core/bot.js";
 import { adminIds } from "../../core/config.js";
 import { logger } from "../../core/logger.js";
+import { refreshMenu } from "../menu.js";
 import { isLocked } from "./store.js";
 import { allowUser, disallowUser, isAdmin, isAllowed, listAllowed, setLock } from "./store.js";
 
@@ -15,6 +16,8 @@ const adminNotified = new Set<string>();
 export async function adminGate(ctx: AppContext, next: NextFunction): Promise<void> {
   const from = ctx.from;
   if (!from) return next();
+
+  await refreshMenu(from);
 
   const id = String(from.id);
 
