@@ -1,29 +1,12 @@
 import { Composer, InlineKeyboard } from "grammy";
 import type { AppContext } from "../../core/bot.js";
+import { requireSession } from "../../shared/requireSession.js";
 import { loginKeyboard, registerKeyboard } from "../auth/index.js";
 import { isLoggedIn, touch } from "../auth/session.js";
 import { findUserByTelegramId } from "../auth/users.js";
 import { PLANS, planByKey } from "./plans.js";
 
 const plans = new Composer<AppContext>();
-
-async function requireSession(ctx: AppContext): Promise<boolean> {
-  const id = String(ctx.from?.id ?? 0);
-  if (isLoggedIn(id)) {
-    touch(id);
-    return true;
-  }
-  if (ctx.callbackQuery) {
-    await ctx.answerCallbackQuery("Session expired").catch(() => undefined);
-  }
-  await ctx.reply(
-    `⏰ Your session is inactive or expired.
-
-For your security, please login again before performing any task.`,
-    { reply_markup: loginKeyboard },
-  );
-  return false;
-}
 
 plans.command("plans", async (ctx) => {
   if (!(await requireSession(ctx))) return;
@@ -41,7 +24,7 @@ export function planListKeyboard(): InlineKeyboard {
     const label = `${p.name}  ·  ${p.percent}%  ·  $${p.min}+`;
     kb.text(label, `plans:detail_${p.key}`).row();
   }
-  return kb;
+  return kb.row().text("🏠 Main Menu", "main:menu");
 }
 
 plans.callbackQuery("plans:list", async (ctx) => {
@@ -102,7 +85,11 @@ plans.callbackQuery(/^plans:detail_(.+)$/, async (ctx) => {
   }
 
   const maxText = plan.max === null ? "Unlimited" : `$${plan.max}`;
-  const kb = new InlineKeyboard().text("💳 Deposit", `plans:deposit_${plan.key}`).row().text("⬅ Back", "plans:list");
+  const kb = new InlineKeyboard()
+    .text("💳 Deposit", `plans:deposit_${plan.key}`)
+    .row()
+    .text("⬅ Back", "plans:list")
+    .text("🏠 Main Menu", "main:menu");
 
   await ctx.answerCallbackQuery();
   await ctx.editMessageText(
@@ -121,9 +108,6 @@ ${plan.message}
   );
 });
 
-const mainMenuKeyboard = () =>
-  new InlineKeyboard().text("🌐 Chat Support", "support:start").row().text("💼 View Plans", "plans:list");
-
 function walletKeyboard(planKey: string): InlineKeyboard {
   return new InlineKeyboard()
     .text("₿ Bitcoin", `plans:wallet_${planKey}_btc`)
@@ -135,7 +119,7 @@ function walletKeyboard(planKey: string): InlineKeyboard {
     .text("◆ Ethereum (ETH)", `plans:wallet_${planKey}_eth`)
     .row()
     .text("⬅ Back", "plans:list")
-    .text("🏠 Main Menu", "plans:main");
+    .text("🏠 Main Menu", "main:menu");
 }
 
 plans.callbackQuery(/^plans:deposit_(.+)$/, async (ctx) => {
@@ -161,17 +145,6 @@ Send your deposit to any of the wallets below and your balance will be credited.
 plans.callbackQuery(/^plans:wallet_(.+)_(btc|trc20|trx|eth)$/, async (ctx) => {
   if (!(await requireSession(ctx))) return;
   await ctx.answerCallbackQuery("Addresses coming next");
-});
-
-plans.callbackQuery("plans:main", async (ctx) => {
-  if (!(await requireSession(ctx))) return;
-  await ctx.answerCallbackQuery();
-  await ctx.editMessageText(`🏠 <b>Main Menu</b>
-
-What would you like to do?`, {
-    reply_markup: mainMenuKeyboard(),
-    parse_mode: "HTML",
-  });
 });
 
 export { plans };

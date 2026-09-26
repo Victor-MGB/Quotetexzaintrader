@@ -3,6 +3,8 @@ import type { AppContext } from "../../core/bot.js";
 import { bot } from "../../core/bot.js";
 import { adminIds } from "../../core/config.js";
 import { logger } from "../../core/logger.js";
+import { getSetting, setSetting } from "../../core/settings.js";
+import { WALLETS, walletByKey } from "../main/content.js";
 import { refreshMenu } from "../menu.js";
 import { isLocked } from "./store.js";
 import { allowUser, disallowUser, isAdmin, isAllowed, listAllowed, setLock } from "./store.js";
@@ -120,6 +122,44 @@ admin.command("unlock", async (ctx) => {
 admin.command("status", async (ctx) => {
   if (!isAdmin(String(ctx.from?.id ?? 0))) return;
   await ctx.reply(`Locked: ${isLocked() ? "yes" : "no"}\nApproved users: ${(await listAllowed()).length}`);
+});
+
+function argsOf(ctx: AppContext): string[] {
+  const text = typeof ctx.match === "string" ? ctx.match.trim() : "";
+  return text ? text.split(/\s+/) : [];
+}
+
+admin.command("setaddress", async (ctx) => {
+  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+
+  const [key, ...rest] = argsOf(ctx);
+  const address = rest.join(" ").trim();
+
+  if (!key || !address) {
+    await ctx.reply(`Usage: /setaddress <${WALLETS.map((w) => w.key).join("|")}> <address>`);
+    return;
+  }
+
+  const wallet = walletByKey(key);
+  if (!wallet) {
+    await ctx.reply(`Unknown method "${key}". Use one of: ${WALLETS.map((w) => w.key).join(", ")}`);
+    return;
+  }
+
+  await setSetting(wallet.settingKey, address);
+  await ctx.reply(`✅ ${wallet.asset} (${wallet.label}) deposit address is live.`);
+});
+
+admin.command("addresses", async (ctx) => {
+  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+
+  const lines = await Promise.all(
+    WALLETS.map(async (w) => {
+      const value = await getSetting(w.settingKey);
+      return `${w.icon} ${w.asset} (${w.label}): ${value ?? "not set"}`;
+    }),
+  );
+  await ctx.reply(`Deposit addresses:\n${lines.join("\n")}`);
 });
 
 export { admin };

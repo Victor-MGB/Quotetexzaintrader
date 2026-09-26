@@ -2,6 +2,7 @@ import { Composer, InlineKeyboard } from "grammy";
 import type { AppContext } from "../../core/bot.js";
 import { adminIds } from "../../core/config.js";
 import { logger } from "../../core/logger.js";
+import { escapeHtml } from "../../shared/html.js";
 import { isAdmin } from "../admin/store.js";
 
 const support = new Composer<AppContext>();
@@ -10,13 +11,9 @@ const composing = new Map<string, boolean>();
 const adminReply = new Map<string, { targetId: string; notifyMessageId?: number }>();
 
 const cancelKeyboard = () =>
-  new InlineKeyboard().text("Cancel", "support:cancel");
+  new InlineKeyboard().text("Cancel", "support:cancel").text("🏠 Main Menu", "main:menu");
 const replyBackKeyboard = () =>
-  new InlineKeyboard().text("💬 Reply Back", "support:start");
-
-function escapeHtml(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
+  new InlineKeyboard().text("💬 Reply Back", "support:start").text("🏠 Main Menu", "main:menu");
 
 support.callbackQuery("support:cancel", async (ctx) => {
   const id = String(ctx.from?.id ?? 0);

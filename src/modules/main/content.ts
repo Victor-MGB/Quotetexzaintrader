@@ -1,0 +1,175 @@
+export interface WalletMethod {
+  key: string;
+  icon: string;
+  label: string;
+  settingKey: string;
+  network: string;
+  asset: string;
+  speed: string;
+}
+
+export const WALLETS: WalletMethod[] = [
+  {
+    key: "btc",
+    icon: "₿",
+    label: "Bitcoin",
+    settingKey: "deposit_btc",
+    network: "Bitcoin",
+    asset: "BTC",
+    speed: "1–3 network confirmations",
+  },
+  {
+    key: "trc20",
+    icon: "💵",
+    label: "USDT (TRC20)",
+    settingKey: "deposit_trc20",
+    network: "Tron (TRC20)",
+    asset: "USDT",
+    speed: "1 confirmation, usually under a minute",
+  },
+  {
+    key: "trx",
+    icon: "🪙",
+    label: "Tron (TRX)",
+    settingKey: "deposit_trx",
+    network: "Tron",
+    asset: "TRX",
+    speed: "1 confirmation, usually under a minute",
+  },
+  {
+    key: "eth",
+    icon: "◆",
+    label: "Ethereum (ETH)",
+    settingKey: "deposit_eth",
+    network: "ERC20",
+    asset: "ETH",
+    speed: "3–5 network confirmations",
+  },
+];
+
+export function walletByKey(key: string): WalletMethod | undefined {
+  return WALLETS.find((w) => w.key === key);
+}
+
+export const MIN_WITHDRAWAL = 10;
+
+export interface Promo {
+  key: string;
+  icon: string;
+  title: string;
+  reward: string;
+  requirement: string;
+}
+
+export const PROMOS: Promo[] = [
+  {
+    key: "first-deposit",
+    icon: "🎁",
+    title: "First Deposit Bonus",
+    reward: "+5% on top of your first plan return",
+    requirement: "Fund any plan within your first 24 hours as a new member.",
+  },
+  {
+    key: "referral",
+    icon: "🤝",
+    title: "Referral Bonus",
+    reward: "$10 credited for every member you bring",
+    requirement: "Your friend must complete a deposit and their first plan session.",
+  },
+  {
+    key: "deposit-size",
+    icon: "📈",
+    title: "Large Deposit Bonus",
+    reward: "Extra 2% on the GOLD plan for deposits of $500+",
+    requirement: "Single deposit of $500 or more into the GOLD plan.",
+  },
+  {
+    key: "loyalty",
+    icon: "🏅",
+    title: "Loyalty Reward",
+    reward: "Priority profit withdrawal and a dedicated support line",
+    requirement: "Three completed plan sessions with no failed payment.",
+  },
+];
+
+export function promoByKey(key: string): Promo | undefined {
+  return PROMOS.find((p) => p.key === key);
+}
+
+export interface ReportCategory {
+  key: string;
+  icon: string;
+  label: string;
+  prompt: string;
+}
+
+export interface Testimony {
+  key: string;
+  member: string;
+  plan: string;
+  message: string;
+}
+
+export const TESTIMONIES: Testimony[] = [
+  {
+    key: "placeholder-1",
+    member: "Placeholder entry",
+    plan: "STARTER",
+    message: "Replace this with a real, consented member quote about their plan session.",
+  },
+  {
+    key: "placeholder-2",
+    member: "Placeholder entry",
+    plan: "GOLD",
+    message: "Replace this with a real, consented member quote about their payout timing.",
+  },
+  {
+    key: "placeholder-3",
+    member: "Placeholder entry",
+    plan: "CLASSIC",
+    message: "Replace this with a real, consented member quote about their support experience.",
+  },
+];
+
+export const REPORT_CATEGORIES: ReportCategory[] = [
+  {
+    key: "deposit",
+    icon: "💳",
+    label: "Deposit issue",
+    prompt: "Describe the deposit problem and include the transaction ID if you have one.",
+  },
+  {
+    key: "withdrawal",
+    icon: "🏦",
+    label: "Withdrawal delay",
+    prompt: "Tell us how much you requested, when, and to which wallet.",
+  },
+  {
+    key: "plan",
+    icon: "💼",
+    label: "Plan / profit issue",
+    prompt: "Tell us which plan you ran and what went wrong with your return.",
+  },
+  {
+    key: "account",
+    icon: "🔐",
+    label: "Account access",
+    prompt: "Tell us what happened with your login or account.",
+  },
+  {
+    key: "fraud",
+    icon: "🚨",
+    label: "Suspected fraud",
+    prompt: "Describe the suspicious activity in as much detail as you can.",
+  },
+  {
+    key: "other",
+    icon: "📝",
+    label: "Something else",
+    prompt: "Tell us what you need help with.",
+  },
+];
+
+export function reportCategoryByKey(key: string): ReportCategory | undefined {
+  return REPORT_CATEGORIES.find((c) => c.key === key);
+}

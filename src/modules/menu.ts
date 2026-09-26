@@ -16,6 +16,7 @@ const MENUS: Record<"admin" | "user" | "restricted", MenuRole> = {
   admin: {
     commands: [
       { command: "start", description: "Start" },
+      { command: "menu", description: "Main menu" },
       { command: "plans", description: "View investment plans" },
       { command: "profile", description: "Your balance and account" },
       { command: "logout", description: "Log out (secure)" },
@@ -25,12 +26,15 @@ const MENUS: Record<"admin" | "user" | "restricted", MenuRole> = {
       { command: "lock", description: "Lock the bot" },
       { command: "unlock", description: "Unlock the bot" },
       { command: "status", description: "Bot status" },
+      { command: "setaddress", description: "Set a deposit address" },
+      { command: "addresses", description: "Show deposit addresses" },
     ],
     menu: { type: "commands" },
   },
   user: {
     commands: [
       { command: "start", description: "Start" },
+      { command: "menu", description: "Main menu" },
       { command: "plans", description: "View investment plans" },
       { command: "profile", description: "Your balance and account" },
       { command: "logout", description: "Log out (secure)" },

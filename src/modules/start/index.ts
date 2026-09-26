@@ -1,9 +1,8 @@
-import { Composer, InlineKeyboard } from "grammy";
+import { Composer } from "grammy";
 import type { AppContext } from "../../core/bot.js";
+import { mainMenuKeyboard } from "../main/index.js";
 
 const start = new Composer<AppContext>();
-
-const menuKeyboard = new InlineKeyboard().text("💼 View Plans", "plans:view");
 
 start.command("start", async (ctx) => {
   const from = ctx.from;
@@ -21,7 +20,7 @@ A New York investment Bot creating opportunities for investors to maximise their
 
 Start your journey to financial freedom today.`,
     {
-      reply_markup: menuKeyboard,
+      reply_markup: mainMenuKeyboard(),
       parse_mode: "HTML",
       link_preview_options: { is_disabled: true },
     },
