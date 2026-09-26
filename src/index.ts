@@ -12,6 +12,7 @@ import { auth } from "./modules/auth/index.js";
 import { profile } from "./modules/profile/index.js";
 import { admin, adminGate } from "./modules/admin/index.js";
 import { support } from "./modules/support/index.js";
+import { referralCapture } from "./modules/referrals/index.js";
 import { loadAccess } from "./modules/admin/store.js";
 
 // Everything runs inside this boundary so a failing handler is logged instead of
@@ -20,6 +21,9 @@ import { loadAccess } from "./modules/admin/store.js";
 const safe = bot.errorBoundary((err) => reportUpdateError(err, "handler error (non-fatal)"));
 
 safe.use(rateLimit);
+// Ahead of adminGate on purpose: a referral invitee is not whitelisted yet, so
+// attribution has to happen before the gate blocks them.
+safe.use(referralCapture);
 safe.use(adminGate);
 safe.use(start);
 safe.use(plans);

@@ -16,6 +16,7 @@ import {
   walletByKey,
 } from "./content.js";
 import { backRow, editScreen, promoBlock, promoTerms, showDepositAddress } from "./screen.js";
+import { referralScreen } from "../referrals/screen.js";
 
 const main = new Composer<AppContext>();
 
@@ -253,6 +254,14 @@ main.callbackQuery(/^main:promo_([\w-]+)$/, async (ctx) => {
     return;
   }
 
+  // The referral reward is driven by the tracked deep link, so it shows a shareable
+  // link instead of the manual "type anything to claim" confirmation flow.
+  if (promo.key === "referral") {
+    await ctx.answerCallbackQuery();
+    await referralScreen(ctx);
+    return;
+  }
+
   const id = String(ctx.from?.id ?? 0);
   composing.set(id, { kind: "promo", promo: promo.key });
 
@@ -265,6 +274,11 @@ ${promoTerms(promo)}
 Type anything to confirm your claim, or add the plan/deposit you want it applied to.`,
     { reply_markup: cancelKeyboard() },
   );
+});
+
+main.callbackQuery("main:referral", async (ctx) => {
+  await ctx.answerCallbackQuery();
+  await referralScreen(ctx);
 });
 
 main.callbackQuery("main:contact", async (ctx) => {

@@ -7,6 +7,7 @@ import { describeDeposit, describeDepositStatus, envAddress, setSetting } from "
 import { escapeHtml } from "../../shared/html.js";
 import { deleteUser, findUserByTelegramId, listUsers, type UserRow } from "../auth/users.js";
 import { WALLETS, sanitizeAddress, walletByKey } from "../main/content.js";
+import { grandTotals, referrerLeaderboard, type ReferrerRow } from "../referrals/store.js";
 import { refreshMenu } from "../menu.js";
 import { isLocked } from "./store.js";
 import { allowUser, disallowUser, isAdmin, isAllowed, listAllowed, setLock } from "./store.js";
@@ -119,7 +120,7 @@ function userEntry(user: UserRow): string {
    🆔 <code>${user.telegramId}</code>${email}`;
 }
 
-function usersPage(all: UserRow[], page: number): { text: string; markup: InlineKeyboard } {
+function usersPage(all: UserRow[], page: number): { text: string; markup: InlineKeyboard | undefined } {
   const pages = Math.max(1, Math.ceil(all.length / USERS_PER_PAGE));
   const start = page * USERS_PER_PAGE;
   const text =
@@ -129,7 +130,7 @@ function usersPage(all: UserRow[], page: number): { text: string; markup: Inline
   const kb = new InlineKeyboard();
   if (page > 0) kb.text("⬅ Prev", `admin:users_${page - 1}`);
   if (page < pages - 1) kb.text("Next ➡", `admin:users_${page + 1}`);
-  return { text, markup: kb };
+  return { text, markup: kb.inline_keyboard.length ? kb : undefined };
 }
 
 admin.command("users", async (ctx) => {
@@ -155,6 +156,64 @@ admin.callbackQuery(/^admin:users_(\d+)$/, async (ctx) => {
 
   await ctx.answerCallbackQuery();
   const view = usersPage(all, target);
+  await ctx.editMessageText(view.text, { reply_markup: view.markup, parse_mode: "HTML" });
+});
+
+const REFERRERS_PER_PAGE = 8;
+
+/** Resolve a referrer to their registered handle, falling back to the raw id. */
+function memberName(telegramId: string, known: Map<string, string>): string {
+  return known.get(telegramId) ?? `id ${telegramId}`;
+}
+
+/** Aggregates arrive as "YYYY-MM-DD hh:mm:ss"; take the day without timezone maths. */
+function formatDay(value: string | Date | null): string {
+  if (!value) return "—";
+  return value instanceof Date ? value.toISOString().slice(0, 10) : value.slice(0, 10);
+}
+
+function referrerEntry(row: ReferrerRow, known: Map<string, string>): string {
+  const name = memberName(row.referrerId, known);
+  const last = formatDay(row.lastJoinedAt);
+  return `<b>${escapeHtml(name)}</b> · 👥 ${row.joined} · 🎁 ${row.qualified} · ✅ ${row.paid}
+   🆔 <code>${escapeHtml(row.referrerId)}</code> · last ${last}`;
+}
+
+async function referralsPage(page: number): Promise<{ text: string; markup: InlineKeyboard | undefined }> {
+  const [rows, totals, members] = await Promise.all([referrerLeaderboard(), grandTotals(), listUsers()]);
+  const known = new Map(members.map((u) => [u.telegramId, u.username ? `@${u.username}` : (u.firstName ?? u.telegramId)]));
+
+  const pages = Math.max(1, Math.ceil(rows.length / REFERRERS_PER_PAGE));
+  const target = Math.min(Math.max(page, 0), pages - 1);
+  const start = target * REFERRERS_PER_PAGE;
+
+  const text =
+    `🔗 <b>Referrals</b> — ${rows.length} referrers · ${totals.joined} joined · ${totals.qualified} qualified · ${totals.paid} paid\n` +
+    `page ${target + 1}/${pages}\n\n` +
+    (rows.length
+      ? rows.slice(start, start + REFERRERS_PER_PAGE).map((row) => referrerEntry(row, known)).join("\n\n")
+      : "No referrals recorded yet. Members build a link from Promo Plan → Referral Bonus.");
+
+  const kb = new InlineKeyboard();
+  if (target > 0) kb.text("⬅ Prev", `admin:referrals_${target - 1}`);
+  if (target < pages - 1) kb.text("Next ➡", `admin:referrals_${target + 1}`);
+  // Telegram rejects an inline_keyboard with no rows, so omit the markup entirely.
+  return { text, markup: kb.inline_keyboard.length ? kb : undefined };
+}
+
+admin.command("referrals", async (ctx) => {
+  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+
+  const view = await referralsPage(0);
+  await ctx.reply(view.text, { reply_markup: view.markup, parse_mode: "HTML" });
+});
+
+admin.callbackQuery(/^admin:referrals_(\d+)$/, async (ctx) => {
+  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+
+  const page = Number(ctx.match[1] ?? 0);
+  await ctx.answerCallbackQuery();
+  const view = await referralsPage(page);
   await ctx.editMessageText(view.text, { reply_markup: view.markup, parse_mode: "HTML" });
 });
 
