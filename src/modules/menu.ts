@@ -23,6 +23,8 @@ const MENUS: Record<"admin" | "user" | "restricted", MenuRole> = {
       { command: "allow", description: "Approve a user (id)" },
       { command: "disallow", description: "Remove access (id)" },
       { command: "list", description: "List allowed users" },
+      { command: "users", description: "List all registered users" },
+      { command: "deleteuser", description: "Delete a user (id)" },
       { command: "lock", description: "Lock the bot" },
       { command: "unlock", description: "Unlock the bot" },
       { command: "status", description: "Bot status" },

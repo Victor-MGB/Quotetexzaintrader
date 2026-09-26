@@ -4,6 +4,8 @@ import { bot } from "../../core/bot.js";
 import { adminIds } from "../../core/config.js";
 import { logger } from "../../core/logger.js";
 import { getSetting, setSetting } from "../../core/settings.js";
+import { escapeHtml } from "../../shared/html.js";
+import { deleteUser, findUserByTelegramId, listUsers, type UserRow } from "../auth/users.js";
 import { WALLETS, walletByKey } from "../main/content.js";
 import { refreshMenu } from "../menu.js";
 import { isLocked } from "./store.js";
@@ -105,6 +107,83 @@ admin.command("list", async (ctx) => {
   const ids = await listAllowed();
   const text = ids.length ? ids.join("\n") : "No allowed users yet.";
   await ctx.reply(`Allowed users:\n${text}`);
+});
+
+const USERS_PER_PAGE = 8;
+
+function userEntry(user: UserRow): string {
+  const name = user.username ? `@${user.username}` : user.firstName ?? "no name";
+  const joined = user.createdAt.toISOString().slice(0, 10);
+  const email = user.email ? ` · ${escapeHtml(user.email)}` : "";
+  return `#${user.id} · <b>${escapeHtml(name)}</b> · $${user.balance} · ${joined}
+   🆔 <code>${user.telegramId}</code>${email}`;
+}
+
+function usersPage(all: UserRow[], page: number): { text: string; markup: InlineKeyboard } {
+  const pages = Math.max(1, Math.ceil(all.length / USERS_PER_PAGE));
+  const start = page * USERS_PER_PAGE;
+  const text =
+    `👥 <b>Registered users</b> — ${all.length} total · page ${page + 1}/${pages}\n\n` +
+    all.slice(start, start + USERS_PER_PAGE).map(userEntry).join("\n");
+
+  const kb = new InlineKeyboard();
+  if (page > 0) kb.text("⬅ Prev", `admin:users_${page - 1}`);
+  if (page < pages - 1) kb.text("Next ➡", `admin:users_${page + 1}`);
+  return { text, markup: kb };
+}
+
+admin.command("users", async (ctx) => {
+  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+
+  const all = await listUsers();
+  if (!all.length) {
+    await ctx.reply("No registered users yet.");
+    return;
+  }
+
+  const page = usersPage(all, 0);
+  await ctx.reply(page.text, { reply_markup: page.markup, parse_mode: "HTML" });
+});
+
+admin.callbackQuery(/^admin:users_(\d+)$/, async (ctx) => {
+  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+
+  const all = await listUsers();
+  const page = Number(ctx.match[1] ?? 0);
+  const last = Math.max(0, Math.ceil(all.length / USERS_PER_PAGE) - 1);
+  const target = Math.min(Math.max(page, 0), last);
+
+  await ctx.answerCallbackQuery();
+  const view = usersPage(all, target);
+  await ctx.editMessageText(view.text, { reply_markup: view.markup, parse_mode: "HTML" });
+});
+
+admin.command("deleteuser", async (ctx) => {
+  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+
+  const self = String(ctx.from?.id ?? 0);
+  const id = idFromArgs(ctx);
+  if (!id) {
+    await ctx.reply("Usage: /deleteuser <telegram-id>");
+    return;
+  }
+  if (id === self) {
+    await ctx.reply("You cannot delete your own account.");
+    return;
+  }
+
+  const target = await findUserByTelegramId(id);
+  if (!target) {
+    await ctx.reply(`No account with Telegram ID ${id}.`);
+    return;
+  }
+
+  await deleteUser(id);
+  await disallowUser(id);
+
+  await ctx.reply(
+    `🗑 Deleted account #${target.id} (${target.username ? `@${target.username}` : target.firstName ?? "no name"}${target.email ? ` · ${target.email}` : ""}).\n\nBot access removed as well.`,
+  );
 });
 
 admin.command("lock", async (ctx) => {
