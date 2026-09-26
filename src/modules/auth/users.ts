@@ -1,8 +1,21 @@
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, gte, sql } from "drizzle-orm";
 import { db } from "../../core/db.js";
 import { users } from "../../db/schema.js";
 
 export type UserRow = typeof users.$inferSelect;
+
+export async function countUsers(): Promise<number> {
+  const rows = await db.select({ n: sql<number>`count(*)::int` }).from(users);
+  return Number(rows[0]?.n ?? 0);
+}
+
+export async function countUsersSince(since: Date): Promise<number> {
+  const rows = await db
+    .select({ n: sql<number>`count(*)::int` })
+    .from(users)
+    .where(gte(users.createdAt, since));
+  return Number(rows[0]?.n ?? 0);
+}
 
 export async function findUserByTelegramId(telegramId: string) {
   const rows = await db.select().from(users).where(eq(users.telegramId, telegramId)).limit(1);

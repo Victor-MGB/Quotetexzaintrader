@@ -17,6 +17,8 @@ import {
 } from "./content.js";
 import { backRow, editScreen, promoBlock, promoTerms, showDepositAddress } from "./screen.js";
 import { referralScreen } from "../referrals/screen.js";
+import { createTransaction } from "../transactions/store.js";
+import { notifyAdminsTransaction } from "../transactions/admin.js";
 
 const main = new Composer<AppContext>();
 
@@ -35,9 +37,10 @@ What would you like to do?`;
 
 export function mainMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
+    .text("📊 Dashboard", "main:dashboard")
     .text("💳 Deposit", "main:deposit")
-    .text("🏦 Withdrawal", "main:withdraw")
     .row()
+    .text("🏦 Withdrawal", "main:withdraw")
     .text("💼 Investment Plan", "plans:list")
     .row()
     .text("⭐ Testimony", "main:testimony")
@@ -370,14 +373,17 @@ Step 2 of 2 — how much do you want to withdraw (minimum $${MIN_WITHDRAWAL})?`,
 
     composing.delete(id);
     const sender = senderName(ctx);
-    await notifyAdmins(
-      `🏦 <b>Withdrawal request</b>
-
-👤 ${escapeHtml(sender.name)}
-🆔 <code>${sender.id}</code>
-💵 Amount: $${amount}
+    const record = await createTransaction({
+      telegramId: sender.id,
+      type: "withdrawal",
+      amount,
+      address: state.address,
+    });
+    await notifyAdminsTransaction(
+      record,
+      `🏦 <b>Withdrawal request</b>`,
+      `👤 ${escapeHtml(sender.name)}
 🏷 Payout wallet: <code>${escapeHtml(state.address ?? "")}</code>`,
-      sender.id,
     );
     await ctx.reply(
       `✅ Withdrawal request received for $${amount}.
@@ -398,14 +404,17 @@ An admin will confirm and pay it to <code>${escapeHtml(state.address ?? "")}</co
 
   if (state.kind === "deposit") {
     const wallet = walletByKey(state.method);
-    await notifyAdmins(
-      `💳 <b>Deposit submitted</b>
-
-👤 ${escapeHtml(sender.name)}
-🆔 <code>${sender.id}</code>
-🪙 Method: ${wallet ? `${wallet.asset} (${wallet.label})` : "unknown"}
-🧾 Transaction ID: <code>${escapeHtml(text)}</code>`,
-      sender.id,
+    const record = await createTransaction({
+      telegramId: sender.id,
+      type: "deposit",
+      method: state.method,
+      reference: text,
+    });
+    await notifyAdminsTransaction(
+      record,
+      "💳 <b>Deposit submitted</b>",
+      `👤 ${escapeHtml(sender.name)}
+🪙 Method: ${wallet ? `${wallet.asset} (${wallet.label})` : "unknown"}`,
     );
     await ctx.reply("✅ Transaction ID received. An admin will verify it and credit your balance.", {
       reply_markup: mainMenuButton(),

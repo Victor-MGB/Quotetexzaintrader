@@ -32,7 +32,6 @@ export const settings = pgTable("settings", {
 });
 
 export const REFERRAL_STATUSES = ["joined", "registered", "qualified"] as const;
-
 export type ReferralStatus = (typeof REFERRAL_STATUSES)[number];
 
 // Kept separate from `users` because that table requires a unique email, so an
@@ -52,5 +51,44 @@ export const referrals = pgTable(
   (t) => [
     uniqueIndex("referrals_invitee_id_idx").on(t.inviteeId),
     index("referrals_referrer_id_idx").on(t.referrerId),
+  ],
+);
+
+// Admins promoted at runtime. ADMIN_IDS stays the permanent source, so the bot
+// can never be locked out of its own admin tooling.
+export const admins = pgTable("admins", {
+  telegramId: text("telegram_id").primaryKey(),
+  addedBy: text("added_by"),
+  addedAt: timestamp("added_at").notNull().defaultNow(),
+});
+
+export const TRANSACTION_TYPES = ["deposit", "withdrawal"] as const;
+export type TransactionType = (typeof TRANSACTION_TYPES)[number];
+
+export const TRANSACTION_STATUSES = ["pending", "approved", "rejected"] as const;
+export type TransactionStatus = (typeof TRANSACTION_STATUSES)[number];
+
+// Amount stays null until an admin confirms a deposit: the member only supplies
+// the chain hash, and the verified figure comes from the admin who checks it.
+// The admin approval queue is simply status = 'pending', so a separate requests
+// table would only duplicate rows and drift from this ledger.
+export const transactions = pgTable(
+  "transactions",
+  {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    telegramId: text("telegram_id").notNull(),
+    type: text("type").$type<TransactionType>().notNull(),
+    status: text("status").$type<TransactionStatus>().notNull().default("pending"),
+    amount: integer("amount"),
+    method: text("method"),
+    reference: text("reference"),
+    address: text("address"),
+    note: text("note"),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("transactions_telegram_id_idx").on(t.telegramId),
+    index("transactions_status_idx").on(t.status),
   ],
 );

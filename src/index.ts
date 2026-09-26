@@ -13,6 +13,9 @@ import { profile } from "./modules/profile/index.js";
 import { admin, adminGate } from "./modules/admin/index.js";
 import { support } from "./modules/support/index.js";
 import { referralCapture } from "./modules/referrals/index.js";
+import { dash } from "./modules/dashboard/index.js";
+import { dash as adminDash } from "./modules/dashboard/admin.js";
+import { txn } from "./modules/transactions/admin.js";
 import { loadAccess } from "./modules/admin/store.js";
 
 // Everything runs inside this boundary so a failing handler is logged instead of
@@ -29,7 +32,12 @@ safe.use(start);
 safe.use(plans);
 safe.use(auth);
 safe.use(profile);
+// txn owns the admin "type the verified amount" step, so it must see text before
+// the main composer, which also handles message:text for member flows.
+safe.use(txn);
 safe.use(admin);
+safe.use(adminDash);
+safe.use(dash);
 safe.use(mainMenu);
 safe.use(support);
 
