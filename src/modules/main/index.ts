@@ -46,7 +46,8 @@ export function mainMenuKeyboard(): InlineKeyboard {
     .text("🎁 Promo Plan", "main:promo")
     .text("📞 Contact Admin", "main:contact")
     .row()
-    .text("🚩 Report", "main:report");
+    .text("🚩 Report", "main:report")
+    .text("👤 Profile", "main:profile");
 }
 
 export function mainMenuButton(): InlineKeyboard {
