@@ -15,6 +15,10 @@ const envSchema = z.object({
   LOG_LEVEL: z.string().default("info"),
   ADMIN_IDS: z.string().default(""),
   SESSION_TIMEOUT_MINUTES: z.coerce.number().default(30),
+  DEPOSIT_BTC: z.string().optional(),
+  DEPOSIT_TRC20: z.string().optional(),
+  DEPOSIT_TRX: z.string().optional(),
+  DEPOSIT_ETH: z.string().optional(),
 });
 
 const parsed = envSchema.safeParse(process.env);

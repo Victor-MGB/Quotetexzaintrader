@@ -3,10 +3,10 @@ import type { AppContext } from "../../core/bot.js";
 import { bot } from "../../core/bot.js";
 import { adminIds } from "../../core/config.js";
 import { logger } from "../../core/logger.js";
-import { getSetting, setSetting } from "../../core/settings.js";
+import { depositAddress, envAddress, setSetting } from "../../core/settings.js";
 import { escapeHtml } from "../../shared/html.js";
 import { deleteUser, findUserByTelegramId, listUsers, type UserRow } from "../auth/users.js";
-import { WALLETS, walletByKey } from "../main/content.js";
+import { WALLETS, sanitizeAddress, walletByKey } from "../main/content.js";
 import { refreshMenu } from "../menu.js";
 import { isLocked } from "./store.js";
 import { allowUser, disallowUser, isAdmin, isAllowed, listAllowed, setLock } from "./store.js";
@@ -225,8 +225,16 @@ admin.command("setaddress", async (ctx) => {
     return;
   }
 
+  if (!sanitizeAddress(wallet, address)) {
+    await ctx.reply(`"${address}" is not a valid ${wallet.asset} address for ${wallet.network}. Nothing was saved.`);
+    return;
+  }
+
   await setSetting(wallet.settingKey, address);
-  await ctx.reply(`✅ ${wallet.asset} (${wallet.label}) deposit address is live.`);
+  const override = envAddress(wallet)
+    ? `\n\n⚠️ ${wallet.envKey} is set in the environment and takes priority, so members will still see that address.`
+    : "";
+  await ctx.reply(`✅ ${wallet.asset} (${wallet.label}) deposit address saved.${override}`);
 });
 
 admin.command("addresses", async (ctx) => {
@@ -234,11 +242,12 @@ admin.command("addresses", async (ctx) => {
 
   const lines = await Promise.all(
     WALLETS.map(async (w) => {
-      const value = await getSetting(w.settingKey);
-      return `${w.icon} ${w.asset} (${w.label}): ${value ?? "not set"}`;
+      const live = await depositAddress(w);
+      const from = envAddress(w) ? `env ${w.envKey}` : live ? "database" : "not set";
+      return `${w.icon} ${w.asset} (${w.label}): ${live ?? "not set"} · source: ${from}`;
     }),
   );
-  await ctx.reply(`Deposit addresses:\n${lines.join("\n")}`);
+  await ctx.reply(`Deposit addresses:\n\n${lines.join("\n")}`);
 });
 
 export { admin };

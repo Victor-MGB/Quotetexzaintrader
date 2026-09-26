@@ -3,7 +3,7 @@ import type { AppContext } from "../../core/bot.js";
 import { bot } from "../../core/bot.js";
 import { adminIds } from "../../core/config.js";
 import { logger } from "../../core/logger.js";
-import { getSetting } from "../../core/settings.js";
+import { depositAddress } from "../../core/settings.js";
 import { escapeHtml } from "../../shared/html.js";
 import { requireSession } from "../../shared/requireSession.js";
 import {
@@ -151,7 +151,7 @@ main.callbackQuery(/^main:deposit_method_(\w+)$/, async (ctx) => {
     return;
   }
 
-  const address = await getSetting(wallet.settingKey);
+  const address = await depositAddress(wallet);
   await ctx.answerCallbackQuery();
 
   if (!address) {
@@ -175,11 +175,12 @@ Tap below and an admin will send you the live ${wallet.network} address.`,
     ctx,
     `${wallet.icon} <b>Send ${wallet.asset} — ${wallet.label}</b>
 
-🏷 <b>Address</b>
-<code>${escapeHtml(address)}</code>
+👇 <b>Tap the address to copy it</b>
+
+<pre>${address}</pre>
 
 📡 <b>Network:</b> ${wallet.network}
-⏱ <b>Confirmed in:</b> ${wallet.speed}
+⏱ <b>Credited after:</b> ${wallet.speed}
 
 ⚠️ Send <b>only ${wallet.asset}</b> on the <b>${wallet.network}</b> network. Payments sent on any other network cannot be recovered.
 

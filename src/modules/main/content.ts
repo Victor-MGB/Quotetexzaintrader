@@ -3,6 +3,8 @@ export interface WalletMethod {
   icon: string;
   label: string;
   settingKey: string;
+  envKey: "DEPOSIT_BTC" | "DEPOSIT_TRC20" | "DEPOSIT_TRX" | "DEPOSIT_ETH";
+  pattern: RegExp;
   network: string;
   asset: string;
   speed: string;
@@ -14,6 +16,8 @@ export const WALLETS: WalletMethod[] = [
     icon: "₿",
     label: "Bitcoin",
     settingKey: "deposit_btc",
+    envKey: "DEPOSIT_BTC",
+    pattern: /^(1[1-9A-HJ-NP-Za-km-z]{25,34}|3[1-9A-HJ-NP-Za-km-z]{25,34}|bc1[qpzry9x8gf2tvdw0s3jn54khce6mua7l]{39}|BC1[QRZRY9X8GF2TVDW0S3JN54KHCE6MUA7L]{39})$/,
     network: "Bitcoin",
     asset: "BTC",
     speed: "1–3 network confirmations",
@@ -23,6 +27,8 @@ export const WALLETS: WalletMethod[] = [
     icon: "💵",
     label: "USDT (TRC20)",
     settingKey: "deposit_trc20",
+    envKey: "DEPOSIT_TRC20",
+    pattern: /^T[1-9A-HJ-NP-Za-km-z]{33}$/,
     network: "Tron (TRC20)",
     asset: "USDT",
     speed: "1 confirmation, usually under a minute",
@@ -32,6 +38,8 @@ export const WALLETS: WalletMethod[] = [
     icon: "🪙",
     label: "Tron (TRX)",
     settingKey: "deposit_trx",
+    envKey: "DEPOSIT_TRX",
+    pattern: /^T[1-9A-HJ-NP-Za-km-z]{33}$/,
     network: "Tron",
     asset: "TRX",
     speed: "1 confirmation, usually under a minute",
@@ -41,11 +49,19 @@ export const WALLETS: WalletMethod[] = [
     icon: "◆",
     label: "Ethereum (ETH)",
     settingKey: "deposit_eth",
+    envKey: "DEPOSIT_ETH",
+    pattern: /^0x[0-9a-fA-F]{40}$/,
     network: "ERC20",
     asset: "ETH",
     speed: "3–5 network confirmations",
   },
 ];
+
+export function sanitizeAddress(wallet: WalletMethod, value: string | null | undefined): string | null {
+  const address = value?.trim() ?? "";
+  if (!address) return null;
+  return wallet.pattern.test(address) ? address : null;
+}
 
 export function walletByKey(key: string): WalletMethod | undefined {
   return WALLETS.find((w) => w.key === key);
