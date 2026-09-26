@@ -3,7 +3,6 @@ import type { AppContext } from "../../core/bot.js";
 import { bot } from "../../core/bot.js";
 import { adminIds } from "../../core/config.js";
 import { logger } from "../../core/logger.js";
-import { depositAddress } from "../../core/settings.js";
 import { escapeHtml } from "../../shared/html.js";
 import { requireSession } from "../../shared/requireSession.js";
 import {
@@ -16,6 +15,7 @@ import {
   reportCategoryByKey,
   walletByKey,
 } from "./content.js";
+import { backRow, editScreen, showDepositAddress } from "./screen.js";
 
 const main = new Composer<AppContext>();
 
@@ -50,17 +50,8 @@ export function mainMenuButton(): InlineKeyboard {
   return new InlineKeyboard().text("🏠 Main Menu", "main:menu");
 }
 
-const backRow = (keyboard: InlineKeyboard, back: string): InlineKeyboard => keyboard.row().text("⬅ Back", back);
-
 const cancelKeyboard = () =>
   new InlineKeyboard().text("✖ Cancel", "main:cancel").text("🏠 Main Menu", "main:menu");
-
-async function editScreen(ctx: AppContext, text: string, keyboard: InlineKeyboard): Promise<void> {
-  await ctx.editMessageText(text, { reply_markup: keyboard, parse_mode: "HTML" }).catch((err: unknown) => {
-    const description = (err as { description?: string }).description ?? "";
-    if (!description.includes("message is not modified")) throw err;
-  });
-}
 
 async function notifyAdmins(body: string, userId: string): Promise<void> {
   const keyboard = new InlineKeyboard().text("✍️ Reply", `support:reply_${userId}`);
@@ -151,46 +142,8 @@ main.callbackQuery(/^main:deposit_method_(\w+)$/, async (ctx) => {
     return;
   }
 
-  const address = await depositAddress(wallet);
   await ctx.answerCallbackQuery();
-
-  if (!address) {
-    await editScreen(
-      ctx,
-      `${wallet.icon} <b>${wallet.label} deposits</b>
-
-⚠️ No ${wallet.asset} address is published yet.
-
-Tap below and an admin will send you the live ${wallet.network} address.`,
-      new InlineKeyboard()
-        .text("📞 Get Deposit Address", "main:contact")
-        .row()
-        .text("⬅ Back", "main:deposit")
-        .text("🏠 Main Menu", "main:menu"),
-    );
-    return;
-  }
-
-  await editScreen(
-    ctx,
-    `${wallet.icon} <b>Send ${wallet.asset} — ${wallet.label}</b>
-
-👇 <b>Tap the address to copy it</b>
-
-<pre>${address}</pre>
-
-📡 <b>Network:</b> ${wallet.network}
-⏱ <b>Credited after:</b> ${wallet.speed}
-
-⚠️ Send <b>only ${wallet.asset}</b> on the <b>${wallet.network}</b> network. Payments sent on any other network cannot be recovered.
-
-Next step: send us the transaction ID so we can credit you faster.`,
-    new InlineKeyboard()
-      .text("✅ I Have Sent The Payment", `main:deposit_sent_${wallet.key}`)
-      .row()
-      .text("⬅ Back", "main:deposit")
-      .text("🏠 Main Menu", "main:menu"),
-  );
+  await showDepositAddress(ctx, wallet, "main:deposit");
 });
 
 main.callbackQuery("main:withdraw", async (ctx) => {
@@ -211,7 +164,10 @@ Cash out your profits to any wallet you control.
 • A session must be closed and cleared before a new request
 
 Tap below to submit a request. You'll be asked for your payout wallet and the amount.`,
-    mainMenuButton(),
+    new InlineKeyboard()
+      .text("📝 Submit Withdrawal Request", "main:withdraw_start")
+      .row()
+      .text("🏠 Main Menu", "main:menu"),
   );
 });
 

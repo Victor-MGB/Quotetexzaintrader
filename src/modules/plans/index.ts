@@ -4,6 +4,8 @@ import { requireSession } from "../../shared/requireSession.js";
 import { loginKeyboard, registerKeyboard } from "../auth/index.js";
 import { isLoggedIn, touch } from "../auth/session.js";
 import { findUserByTelegramId } from "../auth/users.js";
+import { walletByKey } from "../main/content.js";
+import { showDepositAddress } from "../main/screen.js";
 import { PLANS, planByKey } from "./plans.js";
 
 const plans = new Composer<AppContext>();
@@ -144,7 +146,16 @@ Send your deposit to any of the wallets below and your balance will be credited.
 
 plans.callbackQuery(/^plans:wallet_(.+)_(btc|trc20|trx|eth)$/, async (ctx) => {
   if (!(await requireSession(ctx))) return;
-  await ctx.answerCallbackQuery("Addresses coming next");
+
+  const plan = planByKey(ctx.match[1] ?? "");
+  const wallet = walletByKey(ctx.match[2] ?? "");
+  if (!plan || !wallet) {
+    await ctx.answerCallbackQuery("Payment method not found");
+    return;
+  }
+
+  await ctx.answerCallbackQuery();
+  await showDepositAddress(ctx, wallet, `plans:deposit_${plan.key}`);
 });
 
 export { plans };

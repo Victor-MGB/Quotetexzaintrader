@@ -1,5 +1,5 @@
 import type { Server } from "node:http";
-import { bot } from "./core/bot.js";
+import { bot, reportUpdateError } from "./core/bot.js";
 import { checkDb } from "./core/db.js";
 import { logger } from "./core/logger.js";
 import { logDepositAddresses } from "./core/settings.js";
@@ -14,18 +14,23 @@ import { admin, adminGate } from "./modules/admin/index.js";
 import { support } from "./modules/support/index.js";
 import { loadAccess } from "./modules/admin/store.js";
 
-bot.use(rateLimit);
-bot.use(adminGate);
-bot.use(start);
-bot.use(plans);
-bot.use(auth);
-bot.use(profile);
-bot.use(admin);
-bot.use(mainMenu);
-bot.use(support);
+// Everything runs inside this boundary so a failing handler is logged instead of
+// escaping the middleware chain. grammy only applies bot.catch to long polling, so
+// without it a single API error would reject out of the webhook request and kill the process.
+const safe = bot.errorBoundary((err) => reportUpdateError(err, "handler error (non-fatal)"));
+
+safe.use(rateLimit);
+safe.use(adminGate);
+safe.use(start);
+safe.use(plans);
+safe.use(auth);
+safe.use(profile);
+safe.use(admin);
+safe.use(mainMenu);
+safe.use(support);
 
 bot.catch((err) => {
-  logger.error({ err }, "handler error (non-fatal)");
+  reportUpdateError(err, "handler error (non-fatal)");
 });
 
 async function main(): Promise<void> {

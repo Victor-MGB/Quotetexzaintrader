@@ -7,8 +7,23 @@ export type AppContext = import("grammy").Context;
 
 export const bot = new Bot<AppContext>(env.BOT_TOKEN);
 
+interface ApiErrorDetail {
+  message?: string;
+  method?: string;
+  error_code?: number;
+}
+
+export function reportUpdateError(err: unknown, message: string): void {
+  const wrapped = (err as { error?: ApiErrorDetail }).error;
+  const detail = wrapped ?? (err as ApiErrorDetail);
+  logger.error(
+    { message: detail?.message ?? "unknown error", method: detail?.method, code: detail?.error_code },
+    message,
+  );
+}
+
 bot.catch((err) => {
-  logger.error({ error: err.error, ctx: err.ctx }, "bot error");
+  reportUpdateError(err, "bot error");
 });
 
 const UPDATE_TYPES: ReadonlyArray<"message" | "callback_query"> = ["message", "callback_query"];
@@ -31,7 +46,9 @@ export async function startBot(): Promise<Server | undefined> {
     }
 
     const handler = webhookCallback(bot, "http", { secretToken, timeoutMilliseconds: 10_000 });
-    const server = createServer((req, res) => void handler(req, res));
+    const server = createServer((req, res) => {
+      void handler(req, res).catch((err: unknown) => reportUpdateError(err, "webhook update failed"));
+    });
 
     const port = Number(process.env.PORT ?? env.BOT_WEBHOOK_PORT);
     await new Promise<void>((resolve) => server.listen(port, resolve));
