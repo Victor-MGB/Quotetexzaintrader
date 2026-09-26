@@ -1,7 +1,24 @@
 import { InlineKeyboard } from "grammy";
 import type { AppContext } from "../../core/bot.js";
 import { depositAddress } from "../../core/settings.js";
-import type { WalletMethod } from "./content.js";
+import { escapeHtml } from "../../shared/html.js";
+import type { Promo, WalletMethod } from "./content.js";
+
+function tierTable(tiers: Array<[string, string]>): string {
+  const rows: Array<[string, string]> = [["Deposit", "Return"], ...tiers];
+  const width = Math.max(...rows.map(([left]) => left.length)) + 3;
+  return rows.map(([left, right]) => `${left.padEnd(width)}${right}`).join("\n");
+}
+
+export function promoTerms(promo: Promo): string {
+  const ladder = promo.tiers?.length ? `\n\n<pre>${tierTable(promo.tiers)}</pre>` : "";
+  return `${promo.reward}\n${promo.requirement}${ladder}`;
+}
+
+export function promoBlock(promo: Promo): string {
+  return `${promo.icon} <b>${escapeHtml(promo.title)}</b>
+${promoTerms(promo)}`;
+}
 
 export function backRow(keyboard: InlineKeyboard, back: string): InlineKeyboard {
   return keyboard.row().text("⬅ Back", back);

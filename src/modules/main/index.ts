@@ -15,7 +15,7 @@ import {
   reportCategoryByKey,
   walletByKey,
 } from "./content.js";
-import { backRow, editScreen, showDepositAddress } from "./screen.js";
+import { backRow, editScreen, promoBlock, promoTerms, showDepositAddress } from "./screen.js";
 
 const main = new Composer<AppContext>();
 
@@ -224,27 +224,29 @@ main.callbackQuery("main:testimony_send", async (ctx) => {
 main.callbackQuery("main:promo", async (ctx) => {
   await ctx.answerCallbackQuery();
 
-  const entries = PROMOS.map((p) => `${p.icon} <b>${p.title}</b>\n🎁 ${p.reward}\n📌 ${p.requirement}`).join("\n\n");
+  const entries = PROMOS.map(promoBlock).join("\n\n");
 
   const kb = new InlineKeyboard();
   for (const p of PROMOS) {
-    kb.text(`🎁 ${p.title}`, `main:promo_${p.key}`).row();
+    kb.text(`${p.icon} ${p.title}`, `main:promo_${p.key}`).row();
   }
 
   await editScreen(
     ctx,
-    `🎁 <b>PROMO PLAN</b>
+    `💎 <b>INVESTMENT PROMO — OPEN</b>
 
-Bonuses you can claim right now.
+An open invitation to join our investor programme. Deposit from $500 and
+receive twice your deposit back, credited within 12 hours of the deposit
+being confirmed. The more you invest, the higher the return.
 
 ${entries}
 
-Tap a bonus to claim it — an admin confirms and applies it to your account.`,
+Tap an offer to claim it — an admin confirms and applies it to your account.`,
     backRow(kb, "main:menu"),
   );
 });
 
-main.callbackQuery(/^main:promo_(\w+)$/, async (ctx) => {
+main.callbackQuery(/^main:promo_([\w-]+)$/, async (ctx) => {
   const promo = promoByKey(ctx.match[1] ?? "");
   if (!promo) {
     await ctx.answerCallbackQuery("Bonus not found");
@@ -256,10 +258,9 @@ main.callbackQuery(/^main:promo_(\w+)$/, async (ctx) => {
 
   await ctx.answerCallbackQuery();
   await ctx.reply(
-    `🎁 Claiming <b>${promo.title}</b>
+    `💎 <b>CLAIMING ${escapeHtml(promo.title.toUpperCase())}</b>
 
-🎁 ${promo.reward}
-📌 ${promo.requirement}
+${promoTerms(promo)}
 
 Type anything to confirm your claim, or add the plan/deposit you want it applied to.`,
     { reply_markup: cancelKeyboard() },

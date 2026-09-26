@@ -75,9 +75,25 @@ export interface Promo {
   title: string;
   reward: string;
   requirement: string;
+  tiers?: Array<[deposit: string, payout: string]>;
 }
 
 export const PROMOS: Promo[] = [
+  {
+    key: "investment-promo",
+    icon: "💎",
+    title: "Investment Promo",
+    reward: "💸 <b>2× your deposit</b>, credited within 12 hours.",
+    requirement: "📌 Minimum investment $500. Tiers continue beyond the list above.",
+    tiers: [
+      ["$500", "$1,000"],
+      ["$1,000", "$2,000"],
+      ["$2,000", "$4,000"],
+      ["$4,000", "$8,000"],
+      ["$5,000", "$10,000"],
+      ["$10,000", "$20,000"],
+    ],
+  },
   {
     key: "first-deposit",
     icon: "🎁",
