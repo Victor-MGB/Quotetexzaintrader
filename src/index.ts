@@ -2,6 +2,7 @@ import type { Server } from "node:http";
 import { bot } from "./core/bot.js";
 import { checkDb } from "./core/db.js";
 import { logger } from "./core/logger.js";
+import { logDepositAddresses } from "./core/settings.js";
 import { applyBotProfile } from "./core/profile.js";
 import { rateLimit } from "./shared/middlewares/rateLimit.js";
 import { start } from "./modules/start/index.js";
@@ -30,6 +31,7 @@ bot.catch((err) => {
 async function main(): Promise<void> {
   await checkDb();
   await loadAccess();
+  await logDepositAddresses();
   await bot.init();
   logger.info({ username: bot.botInfo.username }, "bot authenticated");
   await applyBotProfile();

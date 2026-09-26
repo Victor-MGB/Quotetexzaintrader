@@ -3,7 +3,7 @@ import type { AppContext } from "../../core/bot.js";
 import { bot } from "../../core/bot.js";
 import { adminIds } from "../../core/config.js";
 import { logger } from "../../core/logger.js";
-import { depositAddress, envAddress, setSetting } from "../../core/settings.js";
+import { describeDeposit, describeDepositStatus, envAddress, setSetting } from "../../core/settings.js";
 import { escapeHtml } from "../../shared/html.js";
 import { deleteUser, findUserByTelegramId, listUsers, type UserRow } from "../auth/users.js";
 import { WALLETS, sanitizeAddress, walletByKey } from "../main/content.js";
@@ -240,13 +240,7 @@ admin.command("setaddress", async (ctx) => {
 admin.command("addresses", async (ctx) => {
   if (!isAdmin(String(ctx.from?.id ?? 0))) return;
 
-  const lines = await Promise.all(
-    WALLETS.map(async (w) => {
-      const live = await depositAddress(w);
-      const from = envAddress(w) ? `env ${w.envKey}` : live ? "database" : "not set";
-      return `${w.icon} ${w.asset} (${w.label}): ${live ?? "not set"} · source: ${from}`;
-    }),
-  );
+  const lines = await Promise.all(WALLETS.map(async (w) => describeDepositStatus(await describeDeposit(w))));
   await ctx.reply(`Deposit addresses:\n\n${lines.join("\n")}`);
 });
 
