@@ -37,16 +37,15 @@ What would you like to do?`;
 
 export function mainMenuKeyboard(): InlineKeyboard {
   return new InlineKeyboard()
-    .text("📊 Dashboard", "main:dashboard")
     .text("💳 Deposit", "main:deposit")
-    .row()
     .text("🏦 Withdrawal", "main:withdraw")
+    .row()
     .text("💼 Investment Plan", "plans:list")
-    .row()
     .text("⭐ Testimony", "main:testimony")
-    .text("🎁 Promo Plan", "main:promo")
     .row()
+    .text("🎁 Promo Plan", "main:promo")
     .text("📞 Contact Admin", "main:contact")
+    .row()
     .text("🚩 Report", "main:report");
 }
 

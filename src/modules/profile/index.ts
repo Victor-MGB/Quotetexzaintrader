@@ -1,4 +1,4 @@
-import { Composer } from "grammy";
+import { Composer, InlineKeyboard } from "grammy";
 import type { AppContext } from "../../core/bot.js";
 import { findUserByTelegramId } from "../auth/users.js";
 
@@ -19,13 +19,21 @@ profile.command("profile", async (ctx) => {
     currency: "USD",
   });
 
+  // The dashboard is reachable from here rather than the main menu, so a member
+  // who has just arrived is not greeted by an empty summary.
+  const kb = new InlineKeyboard()
+    .text("📊 Dashboard", "main:dashboard")
+    .text("🧾 History", "main:history")
+    .row()
+    .text("🏠 Main Menu", "main:menu");
+
   await ctx.reply(
     `👤 <b>Your Profile</b>\n\n` +
       `🆔 ID: <code>${from.id}</code>\n` +
       `${user.email ? `📧 Email: <code>${user.email}</code>\n` : ""}` +
       `👤 Username: ${from.username ? `@${from.username}` : "—"}\n` +
       `💵 Balance: <b>${balance}</b>`,
-    { parse_mode: "HTML" },
+    { reply_markup: kb, parse_mode: "HTML" },
   );
 });
 
