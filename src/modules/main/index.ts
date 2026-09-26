@@ -46,7 +46,9 @@ export function mainMenuKeyboard(): InlineKeyboard {
     .text("🚩 Report", "main:report");
 }
 
-const homeButton = () => new InlineKeyboard().text("🏠 Main Menu", "main:menu");
+export function mainMenuButton(): InlineKeyboard {
+  return new InlineKeyboard().text("🏠 Main Menu", "main:menu");
+}
 
 const backRow = (keyboard: InlineKeyboard, back: string): InlineKeyboard => keyboard.row().text("⬅ Back", back);
 
@@ -96,7 +98,7 @@ main.callbackQuery("main:cancel", async (ctx) => {
   const id = String(ctx.from?.id ?? 0);
   composing.delete(id);
   await ctx.answerCallbackQuery("Cancelled");
-  await editScreen(ctx, "Cancelled.", homeButton());
+  await editScreen(ctx, "Cancelled.", mainMenuButton());
 });
 
 main.callbackQuery("main:deposit", async (ctx) => {
@@ -208,7 +210,7 @@ Cash out your profits to any wallet you control.
 • A session must be closed and cleared before a new request
 
 Tap below to submit a request. You'll be asked for your payout wallet and the amount.`,
-    homeButton(),
+    mainMenuButton(),
   );
 });
 
@@ -409,7 +411,7 @@ Step 2 of 2 — how much do you want to withdraw (minimum $${MIN_WITHDRAWAL})?`,
       `✅ Withdrawal request received for $${amount}.
 
 An admin will confirm and pay it to <code>${escapeHtml(state.address ?? "")}</code> within 24 hours.`,
-      { reply_markup: homeButton() },
+      { reply_markup: mainMenuButton() },
     );
     return;
   }
@@ -434,7 +436,7 @@ An admin will confirm and pay it to <code>${escapeHtml(state.address ?? "")}</co
       sender.id,
     );
     await ctx.reply("✅ Transaction ID received. An admin will verify it and credit your balance.", {
-      reply_markup: homeButton(),
+      reply_markup: mainMenuButton(),
     });
     return;
   }
@@ -452,7 +454,7 @@ ${escapeHtml(text)}`,
       sender.id,
     );
     await ctx.reply("🎁 Bonus claim received. An admin will apply it to your account shortly.", {
-      reply_markup: homeButton(),
+      reply_markup: mainMenuButton(),
     });
     return;
   }
@@ -468,7 +470,7 @@ ${escapeHtml(text)}`,
       sender.id,
     );
     await ctx.reply("✅ Thank you. An admin will review your message before it is published.", {
-      reply_markup: homeButton(),
+      reply_markup: mainMenuButton(),
     });
     return;
   }
@@ -484,7 +486,7 @@ ${escapeHtml(text)}`,
     sender.id,
   );
   await ctx.reply("🚩 Report received. An admin has been notified and will reply here.", {
-    reply_markup: homeButton(),
+    reply_markup: mainMenuButton(),
   });
 });
 

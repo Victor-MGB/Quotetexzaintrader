@@ -1,6 +1,6 @@
 import { Composer } from "grammy";
 import type { AppContext } from "../../core/bot.js";
-import { mainMenuKeyboard } from "../main/index.js";
+import { mainMenuButton } from "../main/index.js";
 
 const start = new Composer<AppContext>();
 
@@ -20,7 +20,7 @@ A New York investment Bot creating opportunities for investors to maximise their
 
 Start your journey to financial freedom today.`,
     {
-      reply_markup: mainMenuKeyboard(),
+      reply_markup: mainMenuButton(),
       parse_mode: "HTML",
       link_preview_options: { is_disabled: true },
     },
