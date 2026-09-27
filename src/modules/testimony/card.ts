@@ -33,8 +33,11 @@ function quote(text: string): string {
 }
 
 export function testimonyBody(row: TestimonyRow): string {
-  const attribution = [row.name, row.plan ? `${row.plan} PLAN` : null].filter(Boolean).join(" · ");
-  return `<b>${escapeHtml(row.name)}</b>${row.plan ? ` · <b>${escapeHtml(row.plan)}</b>` : ""}\n<i>"${quote(row.message)}"</i>\n\n— ${escapeHtml(attribution)}`;
+  // Name and plan appear exactly once. An earlier version repeated both in a
+  // trailing "— Name · PLAN" signature on top of this header, so every card
+  // showed its attribution twice.
+  const plan = row.plan ? ` · <b>${escapeHtml(row.plan)}</b>` : "";
+  return `<b>${escapeHtml(row.name)}</b>${plan}\n<i>"${quote(row.message)}"</i>`;
 }
 
 /** The card as plain text, used when a testimony has no media attached. */

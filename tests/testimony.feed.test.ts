@@ -35,7 +35,7 @@ describe("testimony feed paging", { skip: skip ?? false }, () => {
         name: `Member ${i + 1}`,
         message: `Payout number ${i + 1} arrived on time and support was quick.`,
         plan: i % 2 === 0 ? "GOLD" : "CLASSIC",
-        media: i % 3 === 0 ? "test.jpeg" : null,
+        media: i % 3 === 0 ? "photo-1.jpeg" : null,
         submittedBy: ADMIN,
         byAdmin: true,
         publishNow: true,

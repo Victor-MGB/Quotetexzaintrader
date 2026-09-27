@@ -85,7 +85,9 @@ function mediaLabel(index: number): string {
 function mediaDescription(media: string | null | undefined): string {
   const item = mediaByKey(media);
   if (!item) return "no media attached";
-  return `${item.kind === "photo" ? "🖼 Photo" : "🎬 Video"} · ${item.key}`;
+  // The label, not the filename: an admin should see "🖼 Photo 3" and not have
+  // to interpret whatever the file happens to be called on disk.
+  return item.label;
 }
 
 function planKeyboard(): InlineKeyboard {

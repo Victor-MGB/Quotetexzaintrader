@@ -6,7 +6,7 @@ ensureTestEnv();
 const { after, describe, it, before, beforeEach } = await import("node:test");
 const { dbSkipReason, clearTestimonies, assertSchema, closeDb } = await import("./helpers/db.js");
 const { TEST_ADMIN_ID, TEST_MEMBER_ID, TEST_STRANGER_ID } = await import("./helpers/config.js");
-const { mediaByKey, mediaCaptionTag, mediaPath, MEDIA_LIBRARY } = await import("../src/shared/media.js");
+const { mediaByKey, mediaCaptionTag, mediaPath, naturalSort, MEDIA_LIBRARY } = await import("../src/shared/media.js");
 const { testimonyBody, testimonyListText, testimonyText } = await import("../src/modules/testimony/card.js");
 
 const skip = await dbSkipReason();
@@ -40,16 +40,37 @@ suite("testimony media library", () => {
     assert.equal(videos.length, 3, "expected 3 videos in src/videos");
   });
 
-  it("sorts numerically so test2 comes before test10", () => {
-    const keys = MEDIA_LIBRARY.filter((m) => m.kind === "photo").map((m) => m.key);
+  it("lists photos in order and videos after them", () => {
+    const keys = MEDIA_LIBRARY.map((m) => m.key);
     assert.deepEqual(keys, [
-      "test.jpeg",
-      "test1.jpeg",
-      "test2.jpeg",
-      "test3.jpeg",
-      "test4.jpeg",
-      "test5.jpeg",
-      "test6.jpeg",
+      "photo-1.jpeg",
+      "photo-2.jpeg",
+      "photo-3.jpeg",
+      "photo-4.jpeg",
+      "photo-5.jpeg",
+      "photo-6.jpeg",
+      "photo-7.jpeg",
+      "video-1.mp4",
+      "video-2.mp4",
+      "video-3.mp4",
+    ]);
+  });
+
+  it("sorts numbers numerically, not as text", () => {
+    // With only single-digit names, plain string order and numeric order agree,
+    // so pinning the library above proves nothing on its own. This is the case
+    // that actually matters: the day someone adds photo-10.jpeg, lexicographic
+    // order would put it between photo-1 and photo-2.
+    const shuffled = ["photo-10.jpeg", "photo-2.jpeg", "photo-1.jpeg"];
+    assert.deepEqual([...shuffled].sort(naturalSort), [
+      "photo-1.jpeg",
+      "photo-2.jpeg",
+      "photo-10.jpeg",
+    ]);
+    assert.notDeepEqual([...shuffled].sort(), [
+      "photo-1.jpeg",
+      "photo-2.jpeg",
+      "photo-10.jpeg",
     ]);
   });
 
@@ -66,8 +87,8 @@ suite("testimony media library", () => {
   });
 
   it("labels photos and videos differently", () => {
-    assert.equal(mediaCaptionTag("test1.jpeg"), "🖼 Photo");
-    assert.equal(mediaCaptionTag("vtest.mp4"), "🎬 Video");
+    assert.equal(mediaCaptionTag("photo-2.jpeg"), "🖼 Photo");
+    assert.equal(mediaCaptionTag("video-1.mp4"), "🎬 Video");
   });
 });
 
@@ -106,7 +127,7 @@ suite("testimony moderation", () => {
       name: "Sarah K.",
       message: "Eight months in and every payout has landed on time.",
       plan: "GOLD",
-      media: "test2.jpeg",
+      media: "photo-3.jpeg",
       submittedBy: ADMIN,
       byAdmin: true,
       publishNow: true,
@@ -176,7 +197,7 @@ suite("testimony moderation", () => {
     const row = await store.createTestimony({
       name: "Undo me",
       message: "Removed and then restored by the admin in a single tap.",
-      media: "test.jpeg",
+      media: "photo-1.jpeg",
       submittedBy: ADMIN,
       byAdmin: true,
       publishNow: true,
@@ -208,7 +229,7 @@ suite("testimony moderation", () => {
     const row = await store.createTestimony({
       name: "Media gone",
       message: "This one points at a file that was deleted from the folder.",
-      media: "test1.jpeg",
+      media: "photo-2.jpeg",
       submittedBy: ADMIN,
       byAdmin: true,
       publishNow: true,
@@ -227,6 +248,32 @@ suite("testimony moderation", () => {
 });
 
 suite("testimony card rendering", () => {
+  it("names the member and plan once, not twice", () => {
+    // A card used to carry a "**Name** · **PLAN**" header and repeat both in a
+    // trailing "— Name · PLAN" signature. The suite stayed green because these
+    // tests only checked escaping, never structure, so count them explicitly.
+    const html = testimonyBody(makeRow({ name: "Sarah K.", plan: "GOLD" }));
+
+    const occurrences = (needle: string): number => html.split(needle).length - 1;
+    assert.equal(occurrences("Sarah K."), 1, "the name must appear exactly once");
+    assert.equal(occurrences("GOLD"), 1, "the plan must appear exactly once");
+    assert.ok(!html.includes("—"), "there is no signature line to duplicate into");
+  });
+
+  it("still carries the message and the name when there is no plan", () => {
+    const html = testimonyBody(makeRow({ name: "Marcus T.", plan: null }));
+
+    assert.equal(html.split("Marcus T.").length - 1, 1);
+    assert.ok(html.includes("Eight months in"));
+    assert.ok(!html.includes("PLAN"));
+  });
+
+  it("does not duplicate the name in the list view", () => {
+    const list = testimonyListText([makeRow({ name: "Sarah K.", plan: "GOLD" })]);
+    assert.equal(list.split("Sarah K.").length - 1, 1);
+    assert.equal(list.split("GOLD").length - 1, 1);
+  });
+
   it("escapes a member name that contains markup", () => {
     const html = testimonyBody(makeRow({ name: "<script>alert(1)</script>" }));
     assert.ok(html.includes("&lt;script&gt;"));

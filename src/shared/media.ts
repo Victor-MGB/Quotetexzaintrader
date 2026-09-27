@@ -47,7 +47,7 @@ const VIDEO_EXTENSIONS = new Set([".mp4"]);
  * explicit list, which means dropping a new image into the folder makes it
  * available to the admin picker with no code change.
  */
-function naturalSort(a: string, b: string): number {
+export function naturalSort(a: string, b: string): number {
   return a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
 }
 

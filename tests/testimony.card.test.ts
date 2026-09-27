@@ -69,7 +69,7 @@ describe("testimony card edit cascade", { skip: skip ?? false }, () => {
   it("edits a photo onto the plain message it was opened from", async () => {
     const { ctx, calls } = mockCtx(9101, { editMessageMedia: true, editMessageText: true });
 
-    await showTestimonyCard(ctx, row({ media: "test2.jpeg" }), 0, 3, {} as never);
+    await showTestimonyCard(ctx, row({ media: "photo-3.jpeg" }), 0, 3, {} as never);
 
     assert.deepEqual(calls, ["editMessageMedia"]);
   });
@@ -77,7 +77,7 @@ describe("testimony card edit cascade", { skip: skip ?? false }, () => {
   it("uses the same call for a video card", async () => {
     const { ctx, calls } = mockCtx(9102, { editMessageMedia: true });
 
-    await showTestimonyCard(ctx, row({ media: "vtest.mp4" }), 1, 3, {} as never);
+    await showTestimonyCard(ctx, row({ media: "video-1.mp4" }), 1, 3, {} as never);
 
     assert.deepEqual(calls, ["editMessageMedia"]);
   });
@@ -97,7 +97,7 @@ describe("testimony card edit cascade", { skip: skip ?? false }, () => {
       editMessageText: false,
     });
 
-    await showTestimonyCard(ctx, row({ media: "test1.jpeg" }), 0, 3, {} as never);
+    await showTestimonyCard(ctx, row({ media: "photo-2.jpeg" }), 0, 3, {} as never);
     await showTestimonyCard(ctx, row({ media: null }), 1, 3, {} as never);
 
     assert.equal(calls.at(-1), "editMessageCaption");
@@ -112,7 +112,7 @@ describe("testimony card edit cascade", { skip: skip ?? false }, () => {
     });
 
     await showTestimonyCard(ctx, row({ media: null }), 0, 3, {} as never);
-    await showTestimonyCard(ctx, row({ media: "test3.jpeg" }), 1, 3, {} as never);
+    await showTestimonyCard(ctx, row({ media: "photo-4.jpeg" }), 1, 3, {} as never);
 
     assert.equal(calls[1], "editMessageMedia");
   });
@@ -134,7 +134,7 @@ describe("testimony card edit cascade", { skip: skip ?? false }, () => {
       reply: true,
     });
 
-    await showTestimonyCard(ctx, row({ media: "test.jpeg" }), 0, 3, {} as never);
+    await showTestimonyCard(ctx, row({ media: "photo-1.jpeg" }), 0, 3, {} as never);
 
     assert.equal(calls.at(-1), "reply", "a member should never be stranded on a dead screen");
   });
