@@ -92,23 +92,40 @@ Send the USD amount you received, for example 500.`,
     return;
   }
 
-  const settled = await settle(id, "approved");
-  await ctx.reply(
-    settled
-      ? `✅ Approved #${id}.\n\n${describeTransaction(settled)}\n\nBalance updated.`
-      : `⚠️ #${id} was already handled by someone else.`,
-    { parse_mode: "HTML" },
-  );
+  const result = await settle(id, "approved");
+  if (result.ok) {
+    await ctx.reply(`✅ Approved #${id}.\n\n${describeTransaction(result.row)}\n\nBalance updated.`, { parse_mode: "HTML" });
+    return;
+  }
+
+  await ctx.reply(settleFailureText(result, id), { parse_mode: "HTML" });
 });
+
+/**
+ * A withdrawal that no longer covers the balance is a different problem from one
+ * another admin already handled, so it gets its own wording. It stays pending on
+ * purpose: topping the balance up and approving it again is the intended fix.
+ */
+function settleFailureText(result: { reason: string; requested?: number; available?: number }, id: number): string {
+  if (result.reason === "insufficient_funds") {
+    return `⚠️ Cannot approve #${id} — the member does not have the funds.
+
+Requested: $${result.requested ?? 0}
+Available: $${result.available ?? 0}
+
+The request stays pending. Top the balance up from Users, or reject it.`;
+  }
+  return `⚠️ #${id} was already handled by someone else.`;
+}
 
 txn.callbackQuery(/^admin:txn_reject_(\d+)$/, async (ctx) => {
   if (!guard(ctx)) return;
 
   const id = Number(ctx.match[1]);
-  const settled = await settle(id, "rejected");
-  await ctx.answerCallbackQuery(settled ? "Rejected" : "Already handled");
-  if (settled) {
-    await ctx.reply(`❌ Rejected #${id}. ${describeTransaction(settled)}`, { parse_mode: "HTML" });
+  const result = await settle(id, "rejected");
+  await ctx.answerCallbackQuery(result.ok ? "Rejected" : "Already handled");
+  if (result.ok) {
+    await ctx.reply(`❌ Rejected #${id}. ${describeTransaction(result.row)}`, { parse_mode: "HTML" });
   }
 });
 
@@ -139,16 +156,16 @@ txn.on("message:text", async (ctx, next: NextFunction) => {
     return;
   }
 
-  const settled = await settle(pending, "approved", { amount });
-  if (!settled) {
-    awaitingAmount.delete(id);
-    await ctx.reply(`⚠️ #${pending} was already handled by someone else.`);
+  const result = await settle(pending, "approved", { amount });
+  if (!result.ok) {
+    if (result.reason === "not_pending") awaitingAmount.delete(id);
+    await ctx.reply(settleFailureText(result, pending), { parse_mode: "HTML" });
     return;
   }
 
   awaitingAmount.delete(id);
   await ctx.reply(
-    `✅ Approved #${pending} at $${amount}.\n\n${describeTransaction(settled)}\n\nBalance credited.`,
+    `✅ Approved #${pending} at $${amount}.\n\n${describeTransaction(result.row)}\n\nBalance credited.`,
     { parse_mode: "HTML" },
   );
 });

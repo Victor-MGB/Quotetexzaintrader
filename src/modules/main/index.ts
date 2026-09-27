@@ -17,6 +17,7 @@ import {
 } from "./content.js";
 import { backRow, editScreen, promoBlock, promoTerms, showDepositAddress } from "./screen.js";
 import { referralScreen } from "../referrals/screen.js";
+import { findUserByTelegramId } from "../auth/users.js";
 import { createTransaction } from "../transactions/store.js";
 import { notifyAdminsTransaction } from "../transactions/admin.js";
 
@@ -368,6 +369,19 @@ Step 2 of 2 — how much do you want to withdraw (minimum $${MIN_WITHDRAWAL})?`,
       await ctx.reply(`Enter a valid amount of at least $${MIN_WITHDRAWAL}, for example 250. Tap Cancel to stop.`, {
         reply_markup: cancelKeyboard(),
       });
+      return;
+    }
+
+    // A convenience check so the member learns straight away rather than after an
+    // admin reviews it. settle() re-checks under a row lock at approval time,
+    // because the balance can move between this message and that tap.
+    const available = (await findUserByTelegramId(id))?.balance ?? 0;
+    if (amount > available) {
+      await ctx.reply(
+        `You can withdraw at most $${available.toLocaleString("en-US")}, which is your current balance.\n\n` +
+          `Send $${available.toLocaleString("en-US")} or less, or tap Cancel to stop.`,
+        { reply_markup: cancelKeyboard() },
+      );
       return;
     }
 
