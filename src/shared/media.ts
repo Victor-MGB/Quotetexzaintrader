@@ -74,26 +74,53 @@ export const MEDIA_LIBRARY: MediaItem[] = [
 ];
 
 /**
+ * Re-scans the folders. An admin can upload a file while the process is running,
+ * and MEDIA_LIBRARY was built once at import, so a newly written file would
+ * otherwise be invisible to the picker and unresolvable for the card. Mutated in
+ * place so existing readers keep working.
+ */
+export function refreshMediaLibrary(): void {
+  const fresh = [...scan(PHOTO_DIR, "photo", PHOTO_EXTENSIONS), ...scan(VIDEO_DIR, "video", VIDEO_EXTENSIONS)];
+  MEDIA_LIBRARY.splice(0, MEDIA_LIBRARY.length, ...fresh);
+}
+
+/**
  * The absolute path to send, or null when the file has since been deleted from
  * the folder. Callers treat null as "render this one without media" so a missing
  * file costs the picture, not the testimony.
+ *
+ * Resolved from the filesystem rather than from the cached library, so a file
+ * uploaded moments ago works before anything has rescanned.
  */
 export function mediaPath(key: string | null | undefined): string | null {
   if (!key) return null;
+  if (!isSafeKey(key)) return null;
 
-  const item = MEDIA_LIBRARY.find((entry) => entry.key === key);
-  if (!item) return null;
+  for (const dir of [PHOTO_DIR, VIDEO_DIR]) {
+    if (!dir) continue;
+    const full = path.join(dir, key);
+    if (fs.existsSync(full) && fs.statSync(full).isFile()) return full;
+  }
 
-  const dir = item.kind === "photo" ? PHOTO_DIR : VIDEO_DIR;
-  if (!dir) return null;
-
-  const full = path.join(dir, item.key);
-  return fs.existsSync(full) ? full : null;
+  return null;
 }
 
 export function mediaByKey(key: string | null | undefined): MediaItem | null {
-  if (!key) return null;
-  return MEDIA_LIBRARY.find((entry) => entry.key === key) ?? null;
+  if (!key || !isSafeKey(key)) return null;
+
+  const known = MEDIA_LIBRARY.find((entry) => entry.key === key);
+  if (known) return known;
+
+  // Not in the cached library — an upload written since the last scan. The kind
+  // comes from the extension, but only for a file that is actually on disk:
+  // inferring from the extension alone would report a deleted photo as still
+  // attached, and the admin preview would claim media that is not there.
+  if (!mediaPath(key)) return null;
+
+  const ext = path.extname(key).toLowerCase();
+  if (PHOTO_EXTENSIONS.has(ext)) return { key, kind: "photo", label: "🖼 Photo" };
+  if (VIDEO_EXTENSIONS.has(ext)) return { key, kind: "video", label: "🎬 Video" };
+  return null;
 }
 
 /** How the media should be described under a card, or null when there is none. */
@@ -101,4 +128,85 @@ export function mediaCaptionTag(key: string | null | undefined): string | null {
   const item = mediaByKey(key);
   if (!item) return null;
   return item.kind === "photo" ? "🖼 Photo" : "🎬 Video";
+}
+
+/**
+ * A media key arrives from the database and, for an upload, from a caption an
+ * admin typed. It is joined onto a directory path, so anything able to climb out
+ * of it — separators, "..", a leading slash, an absolute Windows path — has to be
+ * refused rather than sanitised into something that looks safe.
+ */
+function isSafeKey(key: string): boolean {
+  if (key !== path.basename(key)) return false;
+  if (key === "." || key === ".." || key.startsWith(".")) return false;
+  if (key.includes("/") || key.includes("\\") || key.includes("\0")) return false;
+  return /^[A-Za-z0-9._-]+$/.test(key);
+}
+
+const MAX_STEM = 40;
+
+function dirFor(kind: MediaKind): string {
+  const dir = kind === "photo" ? PHOTO_DIR : VIDEO_DIR;
+  if (!dir) throw new Error(`the ${kind} folder could not be found next to the code`);
+  return dir;
+}
+
+/**
+ * Turns whatever the admin typed into a filename that is safe to write. The
+ * extension is taken from the file itself and never from the admin, so a caption
+ * cannot decide what kind of file lands on disk.
+ */
+export function safeStem(desired: string | null | undefined, fallback: string): string {
+  const raw = (desired ?? "")
+    .replace(/\.[A-Za-z0-9]{1,8}$/, "")
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/^[-.]+/, "")
+    .replace(/-+$/, "")
+    .slice(0, MAX_STEM);
+
+  return raw.length > 0 ? raw : fallback;
+}
+
+/** photo-8 for the eighth photo, video-4 for the fourth, and so on. */
+function nextAutoStem(kind: MediaKind): string {
+  const prefix = kind === "photo" ? "photo" : "video";
+  const dir = kind === "photo" ? PHOTO_DIR : VIDEO_DIR;
+  const used = dir ? fs.readdirSync(dir) : [];
+  const pattern = new RegExp(`^${prefix}-(\\d+)\\.`);
+
+  let highest = 0;
+  for (const file of used) {
+    const match = pattern.exec(file);
+    if (match) highest = Math.max(highest, Number(match[1]));
+  }
+
+  return `${prefix}-${highest + 1}`;
+}
+
+/**
+ * Writes an uploaded photo or video into the same library the picker reads, then
+ * rescans so the new file shows up. Returns the stored filename, which is what
+ * goes in the database.
+ */
+export function saveMedia(content: Buffer, kind: MediaKind, desiredName: string | null | undefined): string {
+  const stem = safeStem(desiredName, nextAutoStem(kind));
+  const extension = defaultExtension(kind);
+  const dir = dirFor(kind);
+
+  let candidate = `${stem}${extension}`;
+  let counter = 2;
+  while (fs.existsSync(path.join(dir, candidate))) {
+    // Never silently overwrite: an existing testimony points at that file.
+    candidate = `${stem}-${counter}${extension}`;
+    counter += 1;
+  }
+
+  fs.writeFileSync(path.join(dir, candidate), content);
+  refreshMediaLibrary();
+
+  return candidate;
+}
+
+function defaultExtension(kind: MediaKind): string {
+  return kind === "photo" ? ".jpeg" : ".mp4";
 }

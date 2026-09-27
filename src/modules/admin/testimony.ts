@@ -1,10 +1,10 @@
 import { Composer, InlineKeyboard, type NextFunction } from "grammy";
 import type { AppContext } from "../../core/bot.js";
 import { bot } from "../../core/bot.js";
-import { adminIds } from "../../core/config.js";
+import { adminIds, env } from "../../core/config.js";
 import { logger } from "../../core/logger.js";
 import { escapeHtml } from "../../shared/html.js";
-import { MEDIA_LIBRARY, mediaByKey } from "../../shared/media.js";
+import { MEDIA_LIBRARY, mediaByKey, saveMedia, type MediaKind } from "../../shared/media.js";
 import { PLANS } from "../plans/plans.js";
 import { testimonyBody } from "../testimony/card.js";
 import {
@@ -32,6 +32,12 @@ interface AdminDraft {
   media?: string | null;
   message?: string;
   step: "name" | "plan" | "media" | "message" | "preview";
+  /**
+   * Set while the admin has been asked to send a file. Without it an incoming
+   * photo would be swallowed mid-draft, and one sent when no draft exists would
+   * never reach its real destination.
+   */
+  awaitingUpload?: boolean;
   at: number;
 }
 
@@ -85,9 +91,9 @@ function mediaLabel(index: number): string {
 function mediaDescription(media: string | null | undefined): string {
   const item = mediaByKey(media);
   if (!item) return "no media attached";
-  // The label, not the filename: an admin should see "🖼 Photo 3" and not have
-  // to interpret whatever the file happens to be called on disk.
-  return item.label;
+  // The label alone leaves an uploaded file anonymous, so the chosen name is
+  // shown too. This screen is admin-only; member cards never show a filename.
+  return `${item.label} · ${item.key.replace(/\.[^.]+$/, "")}`;
 }
 
 function planKeyboard(): InlineKeyboard {
@@ -106,7 +112,9 @@ function mediaKeyboard(): InlineKeyboard {
   });
   if (MEDIA_LIBRARY.length % 2 === 0) kb.row();
   kb.text("🚫 No media", "tstadmin:m_-1");
-  return cancelRow(kb);
+  // Uploading is the usual path; the library below it is for reusing shots that
+  // are already in the repo.
+  return cancelRow(kb.row().text("📎 Upload from my device", "tstadmin:m_upload"));
 }
 
 async function showHub(ctx: AppContext, note?: string): Promise<void> {
@@ -209,6 +217,20 @@ Step 3 of 4 — attach a photo or video. This is what makes it read as real.`,
   );
 });
 
+/** Shared by the picker and the upload path, so both land on the same next step. */
+async function mediaChosen(ctx: AppContext, draft: AdminDraft | null): Promise<void> {
+  draft && (draft.awaitingUpload = false);
+  await ctx.reply(
+    `✅ Media: <b>${escapeHtml(mediaDescription(draft?.media ?? null))}</b>
+
+Step 4 of 4 — send the message itself. Write it in the member's voice.`,
+    {
+      parse_mode: "HTML",
+      reply_markup: new InlineKeyboard().text("✖ Discard", "tstadmin:discard"),
+    },
+  );
+}
+
 testimonyAdmin.callbackQuery(/^tstadmin:m_(-?\d+)$/, async (ctx) => {
   if (!guard(ctx)) return;
 
@@ -219,15 +241,137 @@ testimonyAdmin.callbackQuery(/^tstadmin:m_(-?\d+)$/, async (ctx) => {
   if (draft) draft.media = index === -1 ? null : (MEDIA_LIBRARY[index]?.key ?? null);
 
   await ctx.answerCallbackQuery("Media set");
-  await ctx.reply(
-    `✅ Media: <b>${escapeHtml(mediaDescription(draft?.media ?? null))}</b>
+  await mediaChosen(ctx, draft);
+});
 
-Step 4 of 4 — send the message itself. Write it in the member's voice.`,
-    {
-      parse_mode: "HTML",
-      reply_markup: new InlineKeyboard().text("✖ Discard", "tstadmin:discard"),
-    },
+testimonyAdmin.callbackQuery("tstadmin:m_upload", async (ctx) => {
+  if (!guard(ctx)) return;
+
+  const draft = liveDraft(String(ctx.from?.id ?? 0));
+  if (draft) {
+    draft.step = "media";
+    draft.awaitingUpload = true;
+  }
+
+  await ctx.answerCallbackQuery("Send me the file");
+  await ctx.reply(
+    `📎 Send me a photo or a video from your phone or computer.
+
+Put the name you want in the <b>caption</b> — leave it blank and I will number it for you.`,
+    { parse_mode: "HTML" },
   );
+});
+
+/**
+ * Telegram will not hand a bot anything above 20MB through getFile, so the limit
+ * is checked against what Telegram reports before a download is attempted.
+ */
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+
+const MIME_EXTENSIONS: Record<string, string> = {
+  "image/jpeg": ".jpeg",
+  "image/jpg": ".jpeg",
+  "image/png": ".png",
+  "image/webp": ".webp",
+  "video/mp4": ".mp4",
+};
+
+async function receiveUpload(
+  ctx: AppContext,
+  draft: AdminDraft,
+  fileId: string,
+  size: number | undefined,
+  kind: MediaKind,
+  caption: string | undefined,
+): Promise<void> {
+  if (size !== undefined && size > MAX_UPLOAD_BYTES) {
+    await ctx.reply(
+      `📦 That file is ${(size / 1024 / 1024).toFixed(1)}MB. Telegram only lets a bot read up to 20MB — send it smaller, or a link instead.`,
+    );
+    return;
+  }
+
+  const status = await ctx.reply("⏳ Saving that…");
+  let content: Buffer;
+
+  try {
+    const file = await bot.api.getFile(fileId);
+    const url = `https://api.telegram.org/file/bot${env.BOT_TOKEN}/${file.file_path}`;
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      await ctx.api.deleteMessage(status.chat.id, status.message_id).catch(() => undefined);
+      await ctx.reply(`❌ Telegram would not hand the file over (HTTP ${response.status}). Try a smaller file.`);
+      return;
+    }
+
+    content = Buffer.from(await response.arrayBuffer());
+  } catch (err) {
+    logger.error({ err }, "testimony upload download failed");
+    await ctx.api.deleteMessage(status.chat.id, status.message_id).catch(() => undefined);
+    await ctx.reply("❌ That download failed. Check the connection and try again.");
+    return;
+  }
+
+  if (content.length > MAX_UPLOAD_BYTES) {
+    await ctx.api.deleteMessage(status.chat.id, status.message_id).catch(() => undefined);
+    await ctx.reply(`📦 That file is ${(content.length / 1024 / 1024).toFixed(1)}MB, over the 20MB bot limit.`);
+    return;
+  }
+
+  const key = saveMedia(content, kind, caption);
+  draft.media = key;
+  draft.step = "media";
+
+  await ctx.api.deleteMessage(status.chat.id, status.message_id).catch(() => undefined);
+  await mediaChosen(ctx, draft);
+}
+
+/** Photos arrive as a size ladder; the last entry is the original. */
+function photoFileId(ctx: AppContext): { fileId: string; size: number | undefined } | null {
+  const photo = ctx.message?.photo?.at(-1);
+  return photo ? { fileId: photo.file_id, size: photo.file_size } : null;
+}
+
+testimonyAdmin.on("message:photo", async (ctx, next: NextFunction) => {
+  if (!isAdmin(String(ctx.from?.id ?? 0))) return next();
+  const draft = liveDraft(String(ctx.from?.id ?? 0));
+  if (!draft?.awaitingUpload) return next();
+
+  const photo = photoFileId(ctx);
+  if (!photo) return next();
+
+  await receiveUpload(ctx, draft, photo.fileId, photo.size, "photo", ctx.message.caption);
+});
+
+testimonyAdmin.on("message:video", async (ctx, next: NextFunction) => {
+  if (!isAdmin(String(ctx.from?.id ?? 0))) return next();
+  const draft = liveDraft(String(ctx.from?.id ?? 0));
+  if (!draft?.awaitingUpload) return next();
+
+  const video = ctx.message?.video;
+  if (!video) return next();
+
+  await receiveUpload(ctx, draft, video.file_id, video.file_size, "video", ctx.message.caption);
+});
+
+// Telegram refuses most video formats as a "video", so anything over 20MB
+// arrives as a document instead. Accepting it is the only way to get a long
+// clip in at all.
+testimonyAdmin.on("message:document", async (ctx, next: NextFunction) => {
+  if (!isAdmin(String(ctx.from?.id ?? 0))) return next();
+  const draft = liveDraft(String(ctx.from?.id ?? 0));
+  if (!draft?.awaitingUpload) return next();
+
+  const doc = ctx.message?.document;
+  if (!doc?.mime_type) return next();
+
+  const extension = MIME_EXTENSIONS[doc.mime_type];
+  if (!extension) return next();
+
+  const kind: MediaKind = doc.mime_type.startsWith("video/") ? "video" : "photo";
+  // The document's own name is a better label than the caption when both exist.
+  await receiveUpload(ctx, draft, doc.file_id, doc.file_size, kind, ctx.message.caption ?? doc.file_name);
 });
 
 testimonyAdmin.on("message:text", async (ctx, next: NextFunction) => {
