@@ -8,6 +8,7 @@ import {
 } from "../auth/users.js";
 import { WALLETS } from "../main/content.js";
 import { grandTotals } from "../referrals/store.js";
+import { countPending as countPendingTestimonies } from "../testimony/store.js";
 import {
   isAdmin,
   isLocked,
@@ -27,29 +28,35 @@ function guard(ctx: AppContext): boolean {
   return isAdmin(String(ctx.from?.id ?? 0));
 }
 
-function adminKeyboard(pending: number): InlineKeyboard {
+function adminKeyboard(pending: number, testimonyPending: number): InlineKeyboard {
   const kb = new InlineKeyboard()
     .text("👥 Users", "admin:users_0")
     .text("🔗 Referrals", "admin:referrals_0")
     .row()
-    .text("🛡 Admins", "admin:admins");
+    .text("🛡 Admins", "admin:admins")
+    .text("⭐ Testimony", "tstadmin:menu");
 
   if (pending > 0) {
     kb.row().text(`📋 Pending (${pending})`, "admin:txn_queue_0");
   }
+  if (testimonyPending > 0) {
+    kb.row().text(`⭐ Testimony queue (${testimonyPending})`, "tstadmin:queue");
+  }
   return kb;
 }
 
-async function buildAdminDashboard(): Promise<{ text: string; pending: number }> {
-  const [userTotal, daySignups, allowed, referrals, pending, addresses, locked] = await Promise.all([
-    countUsers(),
-    countUsersSince(new Date(Date.now() - 86_400_000)),
-    listAllowed(),
-    grandTotals(),
-    countByStatus("pending"),
-    Promise.all(WALLETS.map(async (w) => describeDepositStatus(await describeDeposit(w)))),
-    Promise.resolve(isLocked()),
-  ]);
+async function buildAdminDashboard(): Promise<{ text: string; pending: number; testimonyPending: number }> {
+  const [userTotal, daySignups, allowed, referrals, pending, addresses, locked, testimonyPending] =
+    await Promise.all([
+      countUsers(),
+      countUsersSince(new Date(Date.now() - 86_400_000)),
+      listAllowed(),
+      grandTotals(),
+      countByStatus("pending"),
+      Promise.all(WALLETS.map(async (w) => describeDepositStatus(await describeDeposit(w)))),
+      Promise.resolve(isLocked()),
+      countPendingTestimonies(),
+    ]);
 
   const ready = addresses.filter((line) => !/missing|not set/i.test(line)).length;
   const text = [
@@ -59,18 +66,19 @@ async function buildAdminDashboard(): Promise<{ text: string; pending: number }>
     `✅ Whitelisted: <b>${allowed.length}</b>`,
     `🤝 Referrals: ${referrals.joined} joined · ${referrals.qualified} qualified · ${referrals.paid} paid`,
     `⏳ Pending requests: <b>${pending}</b>`,
+    `⭐ Testimony awaiting review: <b>${testimonyPending}</b>`,
     `💳 Deposit addresses ready: ${ready}/${WALLETS.length}`,
     `🔒 Bot locked: ${locked ? "yes" : "no"}`,
   ].join("\n");
 
-  return { text, pending };
+  return { text, pending, testimonyPending };
 }
 
 dash.command("admin", async (ctx) => {
   if (!guard(ctx)) return;
 
-  const { text, pending } = await buildAdminDashboard();
-  const kb = adminKeyboard(pending);
+  const { text, pending, testimonyPending } = await buildAdminDashboard();
+  const kb = adminKeyboard(pending, testimonyPending);
   await ctx.reply(text, { reply_markup: kb.inline_keyboard.length ? kb : undefined, parse_mode: "HTML" });
 });
 
@@ -78,8 +86,8 @@ dash.callbackQuery("admin:dashboard", async (ctx) => {
   if (!guard(ctx)) return;
   await ctx.answerCallbackQuery();
 
-  const { text, pending } = await buildAdminDashboard();
-  const kb = adminKeyboard(pending);
+  const { text, pending, testimonyPending } = await buildAdminDashboard();
+  const kb = adminKeyboard(pending, testimonyPending);
   await ctx.editMessageText(text, { reply_markup: kb.inline_keyboard.length ? kb : undefined, parse_mode: "HTML" });
 });
 

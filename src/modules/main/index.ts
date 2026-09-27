@@ -9,7 +9,6 @@ import {
   MIN_WITHDRAWAL,
   PROMOS,
   REPORT_CATEGORIES,
-  TESTIMONIES,
   WALLETS,
   promoByKey,
   reportCategoryByKey,
@@ -27,7 +26,6 @@ type Compose =
   | { kind: "deposit"; method: string }
   | { kind: "withdraw"; step: "address" | "amount"; address?: string }
   | { kind: "promo"; promo: string }
-  | { kind: "testimony" }
   | { kind: "report"; category: string };
 
 const composing = new Map<string, Compose>();
@@ -189,41 +187,6 @@ main.callbackQuery("main:withdraw_start", async (ctx) => {
 Step 1 of 2 — send the <b>wallet address</b> you want the funds paid to (USDT TRC20 or TRX).`,
     { reply_markup: cancelKeyboard() },
   );
-});
-
-main.callbackQuery("main:testimony", async (ctx) => {
-  await ctx.answerCallbackQuery();
-
-  const entries = TESTIMONIES.map(
-    (t) => `✦ <b>${escapeHtml(t.member)}</b> · ${t.plan}
-${escapeHtml(t.message)}`,
-  ).join("\n\n");
-
-  await editScreen(
-    ctx,
-    `⭐ <b>TESTIMONY</b>
-
-What members say after running a plan with us.
-
-${entries}
-
-💬 Have your own experience to share? Send it to the admin and we may publish it here.`,
-    new InlineKeyboard()
-      .text("✍️ Share Your Experience", "main:testimony_send")
-      .row()
-      .text("⬅ Back", "main:menu")
-      .text("🏠 Main Menu", "main:menu"),
-  );
-});
-
-main.callbackQuery("main:testimony_send", async (ctx) => {
-  const id = String(ctx.from?.id ?? 0);
-  composing.set(id, { kind: "testimony" });
-
-  await ctx.answerCallbackQuery();
-  await ctx.reply("✍️ Type your experience in your own words. An admin will review it before it goes live.", {
-    reply_markup: cancelKeyboard(),
-  });
 });
 
 main.callbackQuery("main:promo", async (ctx) => {
@@ -449,22 +412,6 @@ ${escapeHtml(text)}`,
       sender.id,
     );
     await ctx.reply("🎁 Bonus claim received. An admin will apply it to your account shortly.", {
-      reply_markup: mainMenuButton(),
-    });
-    return;
-  }
-
-  if (state.kind === "testimony") {
-    await notifyAdmins(
-      `⭐ <b>Testimony submitted</b>
-
-👤 ${escapeHtml(sender.name)}
-🆔 <code>${sender.id}</code>
-💬 <b>Member said</b>
-${escapeHtml(text)}`,
-      sender.id,
-    );
-    await ctx.reply("✅ Thank you. An admin will review your message before it is published.", {
       reply_markup: mainMenuButton(),
     });
     return;

@@ -135,34 +135,6 @@ export interface ReportCategory {
   prompt: string;
 }
 
-export interface Testimony {
-  key: string;
-  member: string;
-  plan: string;
-  message: string;
-}
-
-export const TESTIMONIES: Testimony[] = [
-  {
-    key: "placeholder-1",
-    member: "Placeholder entry",
-    plan: "STARTER",
-    message: "Replace this with a real, consented member quote about their plan session.",
-  },
-  {
-    key: "placeholder-2",
-    member: "Placeholder entry",
-    plan: "GOLD",
-    message: "Replace this with a real, consented member quote about their payout timing.",
-  },
-  {
-    key: "placeholder-3",
-    member: "Placeholder entry",
-    plan: "CLASSIC",
-    message: "Replace this with a real, consented member quote about their support experience.",
-  },
-];
-
 export const REPORT_CATEGORIES: ReportCategory[] = [
   {
     key: "deposit",

@@ -12,8 +12,10 @@ import { auth } from "./modules/auth/index.js";
 import { profile } from "./modules/profile/index.js";
 import { admin, adminGate } from "./modules/admin/index.js";
 import { balanceAdmin } from "./modules/admin/balance.js";
+import { testimonyAdmin } from "./modules/admin/testimony.js";
 import { support } from "./modules/support/index.js";
 import { referralCapture } from "./modules/referrals/index.js";
+import { testimony } from "./modules/testimony/index.js";
 import { dash } from "./modules/dashboard/index.js";
 import { dash as adminDash } from "./modules/dashboard/admin.js";
 import { txn } from "./modules/transactions/admin.js";
@@ -35,10 +37,15 @@ safe.use(auth);
 safe.use(profile);
 // txn owns the admin "type the verified amount" step, so it must see text before
 // the main composer, which also handles message:text for member flows.
-// balanceAdmin claims text the same way for the "set this member's balance" step.
+// balanceAdmin claims text the same way for the "set this member's balance" step,
+// and testimonyAdmin for the "write the testimony" step.
 safe.use(txn);
 safe.use(balanceAdmin);
+safe.use(testimonyAdmin);
 safe.use(admin);
+// testimony takes over main:testimony from the main composer, so it sits ahead
+// of it. It claims text too, but only for a member part-way through a submission.
+safe.use(testimony);
 safe.use(adminDash);
 safe.use(dash);
 safe.use(mainMenu);

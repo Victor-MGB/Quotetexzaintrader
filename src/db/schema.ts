@@ -62,6 +62,41 @@ export const admins = pgTable("admins", {
   addedAt: timestamp("added_at").notNull().defaultNow(),
 });
 
+export const TESTIMONY_STATUSES = ["pending", "published", "deleted"] as const;
+export type TestimonyStatus = (typeof TESTIMONY_STATUSES)[number];
+
+// Testimonies are social proof, so they live in the database rather than as a
+// hardcoded list in content: members submit their own, an admin publishes them,
+// and either kind can be withdrawn later without a redeploy.
+//
+// "deleted" is a soft state instead of a removed row. Losing a published
+// testimonial to a mis-click is then a reversal rather than a re-typing job, and
+// the record of who submitted it survives for as long as the row does.
+//
+// `media` stores a filename from the library in src/pictures or src/videos rather
+// than a Telegram file_id, because a file_id is only valid for the bot that
+// uploaded it and would not survive a token change. A filename also means a
+// missing file degrades to a text-only card instead of a broken one.
+export const testimonies = pgTable(
+  "testimonies",
+  {
+    id: integer().primaryKey().generatedAlwaysAsIdentity(),
+    name: text("name").notNull(),
+    message: text("message").notNull(),
+    plan: text("plan"),
+    media: text("media"),
+    status: text("status").$type<TestimonyStatus>().notNull().default("pending"),
+    submittedBy: text("submitted_by").notNull(),
+    byAdmin: boolean("by_admin").notNull().default(false),
+    createdAt: timestamp("created_at").notNull().defaultNow(),
+    updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  },
+  (t) => [
+    index("testimonies_status_idx").on(t.status),
+    index("testimonies_submitted_by_idx").on(t.submittedBy),
+  ],
+);
+
 // "adjustment" is a manual correction an admin applies from the user list. It
 // is never pending, so it never reaches the approval queue; the amount is
 // signed and always equals the change the balance actually moved by.
