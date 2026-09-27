@@ -11,6 +11,7 @@ import { plans } from "./modules/plans/index.js";
 import { auth } from "./modules/auth/index.js";
 import { profile } from "./modules/profile/index.js";
 import { admin, adminGate } from "./modules/admin/index.js";
+import { balanceAdmin } from "./modules/admin/balance.js";
 import { support } from "./modules/support/index.js";
 import { referralCapture } from "./modules/referrals/index.js";
 import { dash } from "./modules/dashboard/index.js";
@@ -34,7 +35,9 @@ safe.use(auth);
 safe.use(profile);
 // txn owns the admin "type the verified amount" step, so it must see text before
 // the main composer, which also handles message:text for member flows.
+// balanceAdmin claims text the same way for the "set this member's balance" step.
 safe.use(txn);
+safe.use(balanceAdmin);
 safe.use(admin);
 safe.use(adminDash);
 safe.use(dash);

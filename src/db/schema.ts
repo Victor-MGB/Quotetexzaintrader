@@ -62,7 +62,10 @@ export const admins = pgTable("admins", {
   addedAt: timestamp("added_at").notNull().defaultNow(),
 });
 
-export const TRANSACTION_TYPES = ["deposit", "withdrawal"] as const;
+// "adjustment" is a manual correction an admin applies from the user list. It
+// is never pending, so it never reaches the approval queue; the amount is
+// signed and always equals the change the balance actually moved by.
+export const TRANSACTION_TYPES = ["deposit", "withdrawal", "adjustment"] as const;
 export type TransactionType = (typeof TRANSACTION_TYPES)[number];
 
 export const TRANSACTION_STATUSES = ["pending", "approved", "rejected"] as const;

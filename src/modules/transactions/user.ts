@@ -15,15 +15,23 @@ const STATUS_TEXT: Record<TransactionRow["status"], string> = {
   rejected: "rejected",
 };
 
+/** Grouped like every other money figure in the bot, so the screens agree. */
+function money(value: number): string {
+  return `$${Number(value).toLocaleString("en-US")}`;
+}
+
 function line(row: TransactionRow): string {
-  const label = row.type === "deposit" ? "Deposit" : "Withdrawal";
-  // A deposit has no amount until an admin verifies the chain hash.
+  const label = row.type === "deposit" ? "Deposit" : row.type === "withdrawal" ? "Withdrawal" : "Adjustment";
+  // A deposit has no amount until an admin verifies the chain hash. An
+  // adjustment is already signed; deposits and withdrawals carry a bare figure.
   const amount =
     row.amount === null
       ? "amount pending"
-      : row.type === "deposit"
-        ? `+$${row.amount}`
-        : `−$${row.amount}`;
+      : row.type === "adjustment"
+        ? `${row.amount >= 0 ? "+" : "−"}${money(Math.abs(row.amount))}`
+        : row.type === "deposit"
+          ? `+${money(row.amount)}`
+          : `−${money(row.amount)}`;
   return `${STATUS_ICON[row.status]} <b>${label}</b> ${escapeHtml(amount)} · ${STATUS_TEXT[row.status]}
    #${row.id} · ${row.createdAt.toISOString().slice(0, 10)}`;
 }

@@ -9,6 +9,7 @@ import { deleteUser, findUserByTelegramId, listUsers, type UserRow } from "../au
 import { WALLETS, sanitizeAddress, walletByKey } from "../main/content.js";
 import { grandTotals, referrerLeaderboard, type ReferrerRow } from "../referrals/store.js";
 import { refreshMenu } from "../menu.js";
+import { userButton } from "./balance.js";
 import { isLocked } from "./store.js";
 import { allowUser, disallowUser, isAdmin, isAllowed, listAllowed, setLock } from "./store.js";
 
@@ -123,11 +124,21 @@ function userEntry(user: UserRow): string {
 function usersPage(all: UserRow[], page: number): { text: string; markup: InlineKeyboard | undefined } {
   const pages = Math.max(1, Math.ceil(all.length / USERS_PER_PAGE));
   const start = page * USERS_PER_PAGE;
+  const slice = all.slice(start, start + USERS_PER_PAGE);
   const text =
     `👥 <b>Registered users</b> — ${all.length} total · page ${page + 1}/${pages}\n\n` +
-    all.slice(start, start + USERS_PER_PAGE).map(userEntry).join("\n");
+    slice.map(userEntry).join("\n");
 
   const kb = new InlineKeyboard();
+  // One tappable row per member so an admin can open a client and edit their balance.
+  // row() before the first button would emit an empty row, so it only breaks between.
+  slice.forEach((user, i) => {
+    if (i > 0) kb.row();
+    const button = userButton(user, page);
+    kb.text(button.text, button.data);
+  });
+  // Keep pagination on its own row, but never leave a trailing empty one.
+  if (slice.length && (page > 0 || page < pages - 1)) kb.row();
   if (page > 0) kb.text("⬅ Prev", `admin:users_${page - 1}`);
   if (page < pages - 1) kb.text("Next ➡", `admin:users_${page + 1}`);
   return { text, markup: kb.inline_keyboard.length ? kb : undefined };

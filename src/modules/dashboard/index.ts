@@ -14,8 +14,18 @@ function money(value: number): string {
   return `$${Number(value).toLocaleString("en-US")}`;
 }
 
-async function renderDashboard(ctx: AppContext): Promise<void> {
-  const id = String(ctx.from?.id ?? 0);
+export interface DashboardView {
+  text: string;
+  keyboard: InlineKeyboard;
+}
+
+/**
+ * Builds the dashboard from the database alone, with the caller's Telegram
+ * username as an optional override. Kept free of ctx so an admin editing a
+ * balance can render and push the member's real screen into their chat instead
+ * of asking them to go and refresh it.
+ */
+export async function buildDashboard(id: string, opts: { username?: string } = {}): Promise<DashboardView> {
   const [user, stats, referrals] = await Promise.all([
     findUserByTelegramId(id),
     userTotals(id),
@@ -23,7 +33,7 @@ async function renderDashboard(ctx: AppContext): Promise<void> {
   ]);
 
   // Name and email are user controlled and this is an HTML message, so escape both.
-  const name = escapeHtml(ctx.from?.username ? `@${ctx.from.username}` : (user?.firstName ?? "there"));
+  const name = opts.username ? `@${escapeHtml(opts.username)}` : (user?.firstName ? escapeHtml(user.firstName) : "there");
   const email = user?.email ? `📧 ${escapeHtml(user.email)}` : "";
   const memberSince = user ? user.createdAt.toISOString().slice(0, 10) : "—";
 
@@ -39,6 +49,11 @@ async function renderDashboard(ctx: AppContext): Promise<void> {
     "",
     `📥 Deposited: ${money(stats.approvedIn)}`,
     `📤 Withdrawn: ${money(stats.approvedOut)}`,
+    // Only shown when non-zero, so an untouched account keeps its tidy summary.
+    // Deliberately does not say who made the change; the member sees the figure.
+    ...(stats.adjustments === 0
+      ? []
+      : [`⚙️ Adjustments: ${stats.adjustments >= 0 ? "+" : "−"}${money(Math.abs(stats.adjustments))}`]),
     "",
     `🤝 Referrals: ${referrals.joined} joined · ${referrals.qualified} qualified · ${referrals.paid} paid`,
   ].join("\n");
@@ -53,7 +68,12 @@ async function renderDashboard(ctx: AppContext): Promise<void> {
   if (referralLink(id)) kb.row().text("🤝 Referral link", "main:referral");
   kb.row().text("🏠 Main Menu", "main:menu");
 
-  await ctx.reply(text, { reply_markup: kb, parse_mode: "HTML" });
+  return { text, keyboard: kb };
+}
+
+async function renderDashboard(ctx: AppContext): Promise<void> {
+  const view = await buildDashboard(String(ctx.from?.id ?? 0), { username: ctx.from?.username });
+  await ctx.reply(view.text, { reply_markup: view.keyboard, parse_mode: "HTML" });
 }
 
 dash.command("dashboard", async (ctx) => {

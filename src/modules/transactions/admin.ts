@@ -26,13 +26,21 @@ function guard(ctx: AppContext): boolean {
 }
 
 function typeLabel(row: TransactionRow): string {
-  return row.type === "deposit" ? "💳 Deposit" : "🏦 Withdrawal";
+  if (row.type === "deposit") return "💳 Deposit";
+  if (row.type === "withdrawal") return "🏦 Withdrawal";
+  return "⚙️ Admin adjustment";
 }
 
 export function describeTransaction(row: TransactionRow): string {
   const wallet = row.method ? walletByKey(row.method) : null;
   const method = row.method ? (wallet ? `${wallet.asset} (${wallet.label})` : row.method) : null;
-  const amount = row.amount === null ? "not confirmed yet" : `$${row.amount}`;
+  // An adjustment already carries its own sign, deposits and withdrawals do not.
+  const amount =
+    row.amount === null
+      ? "not confirmed yet"
+      : row.type === "adjustment"
+        ? `${row.amount >= 0 ? "+" : "−"}$${Math.abs(row.amount)}`
+        : `$${row.amount}`;
 
   return [
     `${STATUS_ICON[row.status]} <b>${typeLabel(row)}</b> — #${row.id}`,
@@ -41,6 +49,7 @@ export function describeTransaction(row: TransactionRow): string {
     method ? `🪙 Method: ${escapeHtml(method)}` : "",
     row.reference ? `🧾 Hash: <code>${escapeHtml(row.reference)}</code>` : "",
     row.address ? `🏷 Payout: <code>${escapeHtml(row.address)}</code>` : "",
+    row.note ? `📝 Note: ${escapeHtml(row.note)}` : "",
     `🕐 ${row.createdAt.toISOString().slice(0, 16).replace("T", " ")} UTC`,
   ]
     .filter(Boolean)
