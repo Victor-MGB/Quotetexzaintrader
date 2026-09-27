@@ -293,7 +293,7 @@ testimony.on(["message:photo", "message:video", "message:document"], async (ctx,
     const content = await downloadSafely(request.fileId, "member testimony upload");
     // The caption is the member's testimony text, not a filename, so the media
     // is auto-named rather than named after what they wrote.
-    key = saveMedia(content, request.kind, null);
+    key = await saveMedia(content, request.kind, null);
   } catch (err) {
     await ctx.api.deleteMessage(status.chat.id, status.message_id).catch(() => undefined);
     await ctx.reply(`❌ ${err instanceof Error ? err.message : "That download failed."}`);

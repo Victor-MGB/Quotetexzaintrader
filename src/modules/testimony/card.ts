@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { InputFile, type InlineKeyboard } from "grammy";
 import type { AppContext } from "../../core/bot.js";
 import { escapeHtml } from "../../shared/html.js";
-import { mediaByKey, mediaPath } from "../../shared/media.js";
+import { mediaSource } from "../../shared/media.js";
 import type { TestimonyRow } from "./store.js";
 
 /** Telegram rejects a caption over 1024 characters, and a member's text is unbounded. */
@@ -66,19 +66,25 @@ export async function showTestimonyCard(
   keyboard: InlineKeyboard,
 ): Promise<void> {
   const key = chatKey(ctx);
-  const item = mediaByKey(row.media);
-  const file = mediaPath(row.media);
-  const shape: "text" | "photo" | "video" = item && file ? item.kind : "text";
+  const source = await mediaSource(row.media);
+  const shape: "text" | "photo" | "video" = source ? source.kind : "text";
   const text = testimonyText(row, index, total);
+
+  // A committed file is streamed from disk; an upload is sent by short-lived
+  // URL straight from storage, so nothing depends on the container having kept
+  // its filesystem between deploys.
+  const media = source
+    ? source.url ?? new InputFile(fs.createReadStream(source.path!), source.key)
+    : null;
 
   const editMedia = async (): Promise<void> => {
     await ctx.editMessageMedia(
       {
-        type: item!.kind,
-        media: new InputFile(fs.createReadStream(file!), row.media!),
+        type: source!.kind,
+        media: media!,
         caption: text,
         parse_mode: "HTML",
-        ...(item!.kind === "video" ? { supports_streaming: true } : {}),
+        ...(source!.kind === "video" ? { supports_streaming: true } : {}),
       },
       { reply_markup: keyboard },
     );

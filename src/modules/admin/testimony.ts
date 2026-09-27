@@ -4,7 +4,7 @@ import { bot } from "../../core/bot.js";
 import { adminIds } from "../../core/config.js";
 import { logger } from "../../core/logger.js";
 import { escapeHtml } from "../../shared/html.js";
-import { MEDIA_LIBRARY, mediaByKey, saveMedia } from "../../shared/media.js";
+import { MEDIA_LIBRARY, mediaKindFor, saveMedia } from "../../shared/media.js";
 import { downloadSafely, resolveUpload, sizeRejected, type AcceptedUpload } from "../../shared/telegram-media.js";
 import { PLANS } from "../plans/plans.js";
 import { testimonyBody } from "../testimony/card.js";
@@ -90,11 +90,11 @@ function mediaLabel(index: number): string {
 }
 
 function mediaDescription(media: string | null | undefined): string {
-  const item = mediaByKey(media);
-  if (!item) return "no media attached";
+  const kind = mediaKindFor(media);
+  if (!kind || !media) return "no media attached";
   // The label alone leaves an uploaded file anonymous, so the chosen name is
   // shown too. This screen is admin-only; member cards never show a filename.
-  return `${item.label} · ${item.key.replace(/\.[^.]+$/, "")}`;
+  return `${kind === "photo" ? "🖼 Photo" : "🎬 Video"} · ${media.replace(/\.[^.]+$/, "")}`;
 }
 
 function planKeyboard(): InlineKeyboard {
@@ -281,7 +281,7 @@ async function receiveUpload(ctx: AppContext, draft: AdminDraft, request: Accept
     return;
   }
 
-  const key = saveMedia(content, request.kind, request.desiredName);
+  const key = await saveMedia(content, request.kind, request.desiredName);
   draft.media = key;
   draft.step = "media";
 

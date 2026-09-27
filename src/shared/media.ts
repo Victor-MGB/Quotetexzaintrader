@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { listMedia, mayUseDisk, putMedia, signedMediaUrl, storageEnabled } from "./media-store.js";
 
 export type MediaKind = "photo" | "video";
 
@@ -167,17 +168,29 @@ export function safeStem(desired: string | null | undefined, fallback: string): 
   return raw.length > 0 ? raw : fallback;
 }
 
-/** photo-8 for the eighth photo, video-4 for the fourth, and so on. */
-function nextAutoStem(kind: MediaKind): string {
-  const prefix = kind === "photo" ? "photo" : "video";
+function readDir(kind: MediaKind): string[] | null {
   const dir = kind === "photo" ? PHOTO_DIR : VIDEO_DIR;
-  const used = dir ? fs.readdirSync(dir) : [];
+  return dir ? fs.readdirSync(dir) : null;
+}
+
+/** photo-8 for the eighth photo, video-4 for the fourth, and so on. */
+async function nextAutoStem(kind: MediaKind): Promise<string> {
+  const prefix = kind === "photo" ? "photo" : "video";
   const pattern = new RegExp(`^${prefix}-(\\d+)\\.`);
 
   let highest = 0;
-  for (const file of used) {
+  for (const file of readDir(kind) ?? []) {
     const match = pattern.exec(file);
     if (match) highest = Math.max(highest, Number(match[1]));
+  }
+
+  // Uploads live in storage rather than on disk, so the count has to span both
+  // or a restart would hand out photo-8 again and collide with a published card.
+  if (storageEnabled()) {
+    for (const name of await listMedia().catch(() => [])) {
+      const match = pattern.exec(name);
+      if (match) highest = Math.max(highest, Number(match[1]));
+    }
   }
 
   return `${prefix}-${highest + 1}`;
@@ -188,23 +201,113 @@ function nextAutoStem(kind: MediaKind): string {
  * rescans so the new file shows up. Returns the stored filename, which is what
  * goes in the database.
  */
-export function saveMedia(content: Buffer, kind: MediaKind, desiredName: string | null | undefined): string {
-  const stem = safeStem(desiredName, nextAutoStem(kind));
+/**
+ * Picks a name that is not taken, checking both the disk and storage so a
+ * number is never reused across a migration.
+ */
+async function freeKey(kind: MediaKind, desiredName: string | null | undefined): Promise<string> {
+  const stem = safeStem(desiredName, await nextAutoStem(kind));
   const extension = defaultExtension(kind);
-  const dir = dirFor(kind);
+
+  let taken: Set<string>;
+  if (storageEnabled()) {
+    taken = new Set([...(await listMedia().catch(() => [])), ...(readDir(kind) ?? [])]);
+  } else {
+    taken = new Set(readDir(kind) ?? []);
+  }
 
   let candidate = `${stem}${extension}`;
   let counter = 2;
-  while (fs.existsSync(path.join(dir, candidate))) {
-    // Never silently overwrite: an existing testimony points at that file.
+  // Never silently overwrite: an existing testimony points at that file.
+  while (taken.has(candidate)) {
     candidate = `${stem}-${counter}${extension}`;
     counter += 1;
   }
 
-  fs.writeFileSync(path.join(dir, candidate), content);
-  refreshMediaLibrary();
-
   return candidate;
+}
+
+/** Writes to disk. Used outside production, and by the tests. */
+export function saveMediaToDisk(content: Buffer, kind: MediaKind, key: string): string {
+  fs.writeFileSync(path.join(dirFor(kind), key), content);
+  refreshMediaLibrary();
+  return key;
+}
+
+/**
+ * Stores an uploaded photo or video and returns the key to record in the
+ * database.
+ *
+ * In production this goes to Supabase Storage, because a Render container's
+ * disk is wiped on the next deploy and the database would be left pointing at a
+ * file that no longer exists — the reason a published card quietly lost its
+ * picture. Storage not being configured is therefore an error, not a reason to
+ * fall back to disk.
+ */
+export async function saveMedia(
+  content: Buffer,
+  kind: MediaKind,
+  desiredName: string | null | undefined,
+): Promise<string> {
+  const key = await freeKey(kind, desiredName);
+
+  if (storageEnabled()) {
+    await putMedia(key, content);
+    return key;
+  }
+
+  if (!mayUseDisk()) {
+    throw new Error("Media storage is not configured on this server.");
+  }
+
+  return saveMediaToDisk(content, kind, key);
+}
+
+/**
+ * The kind of a key, from the library label or failing that the extension, with
+ * no claim about whether the file exists.
+ *
+ * Separate from mediaByKey on purpose. Uploads live in Supabase Storage, not on
+ * this host's disk, so "is it in the library" and "what kind is it" stopped
+ * being the same question: a storage upload is not in the library and not on
+ * disk, but it is still a photo, and the card has to know that to send it.
+ */
+export function mediaKindFor(key: string | null | undefined): MediaKind | null {
+  if (!key || !isSafeKey(key)) return null;
+
+  const known = MEDIA_LIBRARY.find((entry) => entry.key === key);
+  if (known) return known.kind;
+
+  const ext = path.extname(key).toLowerCase();
+  if (PHOTO_EXTENSIONS.has(ext)) return "photo";
+  if (VIDEO_EXTENSIONS.has(ext)) return "video";
+  return null;
+}
+
+/**
+ * Everything needed to send one piece of media, from wherever it happens to
+ * live: a stream from disk for the files committed to the repository, or a
+ * short-lived URL for an upload in storage.
+ *
+ * Disk is checked first so the committed library keeps working with no storage
+ * configured at all.
+ */
+export async function mediaSource(key: string | null | undefined): Promise<MediaSource | null> {
+  const kind = mediaKindFor(key);
+  if (!kind || !key) return null;
+
+  const local = mediaPath(key);
+  if (local) return { kind, key, path: local };
+
+  const url = await signedMediaUrl(key).catch(() => null);
+  return url ? { kind, key, url } : null;
+}
+
+export interface MediaSource {
+  kind: MediaKind;
+  key: string;
+  path?: string;
+  url?: string;
 }
 
 function defaultExtension(kind: MediaKind): string {
