@@ -138,10 +138,16 @@ export async function listMedia(): Promise<string[]> {
   const response = await api(`/object/list/${BUCKET}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ limit: 1000 }),
+    // prefix is required by the API and an empty string means the whole bucket.
+    // Omitting it answers 400, which would read as an empty bucket and hand out
+    // a filename that is already taken.
+    body: JSON.stringify({ prefix: "", limit: 1000 }),
   });
 
-  if (!response.ok) return [];
+  if (!response.ok) {
+    logger.warn({ status: response.status }, "could not list media storage; assuming it is empty");
+    return [];
+  }
 
   const body = (await response.json()) as StorageEntry[];
   return body.map((entry) => entry.name);
