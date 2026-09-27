@@ -220,7 +220,16 @@ Step 3 of 4 — attach a photo or video. This is what makes it read as real.`,
 
 /** Shared by the picker and the upload path, so both land on the same next step. */
 async function mediaChosen(ctx: AppContext, draft: AdminDraft | null): Promise<void> {
-  draft && (draft.awaitingUpload = false);
+  // The step has to move here rather than at the call sites. Both the library
+  // button and the upload funnel through this function, and leaving the draft
+  // on "media" meant the step 4 text fell through the handler to next() and was
+  // swallowed with no reply at all — which in turn meant draft.message could
+  // never be set and the whole composer could never reach publish.
+  if (draft) {
+    draft.awaitingUpload = false;
+    draft.step = "message";
+  }
+
   await ctx.reply(
     `✅ Media: <b>${escapeHtml(mediaDescription(draft?.media ?? null))}</b>
 
@@ -283,7 +292,6 @@ async function receiveUpload(ctx: AppContext, draft: AdminDraft, request: Accept
 
   const key = await saveMedia(content, request.kind, request.desiredName);
   draft.media = key;
-  draft.step = "media";
 
   await ctx.api.deleteMessage(status.chat.id, status.message_id).catch(() => undefined);
   await mediaChosen(ctx, draft);
