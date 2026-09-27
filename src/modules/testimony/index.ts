@@ -1,7 +1,9 @@
 import { Composer, InlineKeyboard, type NextFunction } from "grammy";
 import type { AppContext } from "../../core/bot.js";
 import { escapeHtml } from "../../shared/html.js";
+import { saveMedia } from "../../shared/media.js";
 import { requireSession } from "../../shared/requireSession.js";
+import { downloadSafely, resolveUpload, sizeRejected } from "../../shared/telegram-media.js";
 import { notifyTestimonySubmitted } from "../admin/testimony.js";
 import { showTestimonyCard, testimonyListText } from "./card.js";
 import { PAGE_SIZE } from "./constants.js";
@@ -190,7 +192,9 @@ testimony.callbackQuery(/^tst:name_(me|anon)$/, async (ctx) => {
 
 Step 2 of 2 — tell everyone how it has been for you.
 
-A couple of sentences about your plan and your payouts is plenty.`,
+A couple of sentences about your plan and your payouts is plenty.
+
+You can send a <b>photo or video</b> as well — put your message in the caption and it goes up with the picture, no admin step involved.`,
     {
       parse_mode: "HTML",
       reply_markup: new InlineKeyboard().text("✖ Cancel", "tst:cancel"),
@@ -231,6 +235,82 @@ testimony.on("message:text", async (ctx, next: NextFunction) => {
   });
 
   await ctx.reply("✅ Sent. An admin has been notified and will review it before it appears on the testimony page.", {
+    reply_markup: new InlineKeyboard().text("🏠 Main Menu", "main:menu"),
+  });
+
+  await notifyTestimonySubmitted(row);
+});
+
+/**
+ * A member sends a photo or clip instead of a bare message: the picture is
+ * attached for them, and the caption becomes their words.
+ *
+ * The point is that nothing about the picture is an admin's job. Previously the
+ * only media a testimony could ever carry was chosen by an admin from a fixed
+ * library, so a member who sent a screenshot of their own payout had no way to
+ * show it. The file still passes review with the rest of the submission, and it
+ * still lands on disk in the same folder, so the known limit applies: an
+ * ephemeral host loses these on redeploy.
+ */
+testimony.on(["message:photo", "message:video", "message:document"], async (ctx, next: NextFunction) => {
+  const id = String(ctx.from?.id ?? 0);
+  const draft = liveDraft(id);
+  if (!draft) return next();
+  if (!ctx.message) return next();
+
+  const request = resolveUpload(ctx.message);
+  if (!request) {
+    // Some file type we cannot render. Say so rather than swallowing the update
+    // and leaving the member staring at a draft that will never submit.
+    drafting.delete(id);
+    await ctx.reply(
+      "⚠️ That file type cannot go on the testimony page. Send it as a photo, or as a video in MP4 format.",
+      { reply_markup: new InlineKeyboard().text("✍️ Start again", "tst:share") },
+    );
+    return;
+  }
+
+  const text = (ctx.message.caption ?? "").trim();
+  if (text.length < 10) {
+    await ctx.reply(
+      "📝 Add your message in the <b>caption</b> under the picture — a couple of sentences about your plan and payouts. Send it again with the caption filled in.",
+      { parse_mode: "HTML" },
+    );
+    return;
+  }
+
+  const tooBig = sizeRejected(request.size);
+  if (tooBig) {
+    await ctx.reply(`📦 ${tooBig}`);
+    return;
+  }
+
+  drafting.delete(id);
+  const status = await ctx.reply("⏳ Attaching your picture…");
+  let key: string;
+
+  try {
+    const content = await downloadSafely(request.fileId, "member testimony upload");
+    // The caption is the member's testimony text, not a filename, so the media
+    // is auto-named rather than named after what they wrote.
+    key = saveMedia(content, request.kind, null);
+  } catch (err) {
+    await ctx.api.deleteMessage(status.chat.id, status.message_id).catch(() => undefined);
+    await ctx.reply(`❌ ${err instanceof Error ? err.message : "That download failed."}`);
+    return;
+  }
+
+  const row = await createTestimony({
+    name: draft.name,
+    message: text.slice(0, 1000),
+    media: key,
+    submittedBy: id,
+    byAdmin: false,
+    publishNow: false,
+  });
+
+  await ctx.api.deleteMessage(status.chat.id, status.message_id).catch(() => undefined);
+  await ctx.reply("✅ Sent, with your picture. An admin will review it before it appears on the testimony page.", {
     reply_markup: new InlineKeyboard().text("🏠 Main Menu", "main:menu"),
   });
 

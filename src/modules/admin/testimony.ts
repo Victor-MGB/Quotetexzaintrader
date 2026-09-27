@@ -1,10 +1,11 @@
 import { Composer, InlineKeyboard, type NextFunction } from "grammy";
 import type { AppContext } from "../../core/bot.js";
 import { bot } from "../../core/bot.js";
-import { adminIds, env } from "../../core/config.js";
+import { adminIds } from "../../core/config.js";
 import { logger } from "../../core/logger.js";
 import { escapeHtml } from "../../shared/html.js";
-import { MEDIA_LIBRARY, mediaByKey, saveMedia, type MediaKind } from "../../shared/media.js";
+import { MEDIA_LIBRARY, mediaByKey, saveMedia } from "../../shared/media.js";
+import { downloadSafely, resolveUpload, sizeRejected, type AcceptedUpload } from "../../shared/telegram-media.js";
 import { PLANS } from "../plans/plans.js";
 import { testimonyBody } from "../testimony/card.js";
 import {
@@ -262,32 +263,10 @@ Put the name you want in the <b>caption</b> — leave it blank and I will number
   );
 });
 
-/**
- * Telegram will not hand a bot anything above 20MB through getFile, so the limit
- * is checked against what Telegram reports before a download is attempted.
- */
-const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
-
-const MIME_EXTENSIONS: Record<string, string> = {
-  "image/jpeg": ".jpeg",
-  "image/jpg": ".jpeg",
-  "image/png": ".png",
-  "image/webp": ".webp",
-  "video/mp4": ".mp4",
-};
-
-async function receiveUpload(
-  ctx: AppContext,
-  draft: AdminDraft,
-  fileId: string,
-  size: number | undefined,
-  kind: MediaKind,
-  caption: string | undefined,
-): Promise<void> {
-  if (size !== undefined && size > MAX_UPLOAD_BYTES) {
-    await ctx.reply(
-      `📦 That file is ${(size / 1024 / 1024).toFixed(1)}MB. Telegram only lets a bot read up to 20MB — send it smaller, or a link instead.`,
-    );
+async function receiveUpload(ctx: AppContext, draft: AdminDraft, request: AcceptedUpload): Promise<void> {
+  const tooBig = sizeRejected(request.size);
+  if (tooBig) {
+    await ctx.reply(`📦 ${tooBig}`);
     return;
   }
 
@@ -295,31 +274,14 @@ async function receiveUpload(
   let content: Buffer;
 
   try {
-    const file = await bot.api.getFile(fileId);
-    const url = `https://api.telegram.org/file/bot${env.BOT_TOKEN}/${file.file_path}`;
-    const response = await fetch(url);
-
-    if (!response.ok) {
-      await ctx.api.deleteMessage(status.chat.id, status.message_id).catch(() => undefined);
-      await ctx.reply(`❌ Telegram would not hand the file over (HTTP ${response.status}). Try a smaller file.`);
-      return;
-    }
-
-    content = Buffer.from(await response.arrayBuffer());
+    content = await downloadSafely(request.fileId, "admin testimony upload");
   } catch (err) {
-    logger.error({ err }, "testimony upload download failed");
     await ctx.api.deleteMessage(status.chat.id, status.message_id).catch(() => undefined);
-    await ctx.reply("❌ That download failed. Check the connection and try again.");
+    await ctx.reply(`❌ ${err instanceof Error ? err.message : "That download failed."}`);
     return;
   }
 
-  if (content.length > MAX_UPLOAD_BYTES) {
-    await ctx.api.deleteMessage(status.chat.id, status.message_id).catch(() => undefined);
-    await ctx.reply(`📦 That file is ${(content.length / 1024 / 1024).toFixed(1)}MB, over the 20MB bot limit.`);
-    return;
-  }
-
-  const key = saveMedia(content, kind, caption);
+  const key = saveMedia(content, request.kind, request.desiredName);
   draft.media = key;
   draft.step = "media";
 
@@ -327,52 +289,24 @@ async function receiveUpload(
   await mediaChosen(ctx, draft);
 }
 
-/** Photos arrive as a size ladder; the last entry is the original. */
-function photoFileId(ctx: AppContext): { fileId: string; size: number | undefined } | null {
-  const photo = ctx.message?.photo?.at(-1);
-  return photo ? { fileId: photo.file_id, size: photo.file_size } : null;
+/**
+ * One filter for all three media message types. Telegram sends a photo as a
+ * ladder, a clip as a video, and anything it will not classify as a document,
+ * so the shared resolver is what keeps those three cases identical.
+ */
+async function onAdminMedia(ctx: AppContext, next: NextFunction): Promise<void> {
+  if (!isAdmin(String(ctx.from?.id ?? 0))) return next();
+  const draft = liveDraft(String(ctx.from?.id ?? 0));
+  if (!draft?.awaitingUpload) return next();
+  if (!ctx.message) return next();
+
+  const request = resolveUpload(ctx.message);
+  if (!request) return next();
+
+  await receiveUpload(ctx, draft, request);
 }
 
-testimonyAdmin.on("message:photo", async (ctx, next: NextFunction) => {
-  if (!isAdmin(String(ctx.from?.id ?? 0))) return next();
-  const draft = liveDraft(String(ctx.from?.id ?? 0));
-  if (!draft?.awaitingUpload) return next();
-
-  const photo = photoFileId(ctx);
-  if (!photo) return next();
-
-  await receiveUpload(ctx, draft, photo.fileId, photo.size, "photo", ctx.message.caption);
-});
-
-testimonyAdmin.on("message:video", async (ctx, next: NextFunction) => {
-  if (!isAdmin(String(ctx.from?.id ?? 0))) return next();
-  const draft = liveDraft(String(ctx.from?.id ?? 0));
-  if (!draft?.awaitingUpload) return next();
-
-  const video = ctx.message?.video;
-  if (!video) return next();
-
-  await receiveUpload(ctx, draft, video.file_id, video.file_size, "video", ctx.message.caption);
-});
-
-// Telegram refuses most video formats as a "video", so anything over 20MB
-// arrives as a document instead. Accepting it is the only way to get a long
-// clip in at all.
-testimonyAdmin.on("message:document", async (ctx, next: NextFunction) => {
-  if (!isAdmin(String(ctx.from?.id ?? 0))) return next();
-  const draft = liveDraft(String(ctx.from?.id ?? 0));
-  if (!draft?.awaitingUpload) return next();
-
-  const doc = ctx.message?.document;
-  if (!doc?.mime_type) return next();
-
-  const extension = MIME_EXTENSIONS[doc.mime_type];
-  if (!extension) return next();
-
-  const kind: MediaKind = doc.mime_type.startsWith("video/") ? "video" : "photo";
-  // The document's own name is a better label than the caption when both exist.
-  await receiveUpload(ctx, draft, doc.file_id, doc.file_size, kind, ctx.message.caption ?? doc.file_name);
-});
+testimonyAdmin.on(["message:photo", "message:video", "message:document"], onAdminMedia);
 
 testimonyAdmin.on("message:text", async (ctx, next: NextFunction) => {
   const id = String(ctx.from?.id ?? 0);
