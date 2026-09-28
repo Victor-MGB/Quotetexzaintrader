@@ -19,6 +19,7 @@
     "db:studio": "drizzle-kit studio",
     "test": "node --import tsx --test --test-concurrency=1 tests/*.test.ts",
     "delete-user": "tsx scripts/delete-user.ts",
+    "inspect-user": "tsx scripts/inspect-user.ts",
     "test:db:up": "bash scripts/test-db.sh up",
     "test:db:down": "bash scripts/test-db.sh down"
   },

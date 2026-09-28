@@ -52,3 +52,15 @@ export function consumeReferralNote(telegramId: string): string {
   notes.delete(telegramId);
   return note;
 }
+
+/**
+ * Drops an unconsumed referral note.
+ *
+ * Called when an admin deletes the account. The note is only ever read by /start,
+ * so a leftover one would credit a referral to somebody whose account no longer
+ * exists, and — because the note is keyed on the telegram id — would still be
+ * there to greet them if they registered again under the same id.
+ */
+export function forgetReferralNote(telegramId: string): void {
+  notes.delete(telegramId);
+}

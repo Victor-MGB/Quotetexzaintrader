@@ -32,11 +32,17 @@ export async function listUsers(): Promise<UserRow[]> {
 }
 
 export interface PurgeResult {
-  user: UserRow;
+  /** Null when the account row was already gone but other rows still pointed at this id. */
+  user: UserRow | null;
   transactions: number;
   /** Both directions: people they referred, and whoever referred them. */
   referrals: number;
   testimonies: number;
+  accessRequests: number;
+  whitelist: number;
+  adminPromotions: number;
+  /** True when the account row itself went, as opposed to only leftovers. */
+  hadAccount: boolean;
 }
 
 /**
@@ -49,6 +55,15 @@ export interface PurgeResult {
  * let in by the gate. So every table that mentions the id goes in the same
  * transaction — either the account is gone completely or nothing was removed.
  *
+ * The sweep keys off the telegram id rather than the account row, and that is
+ * deliberate. An admin who says "delete this person" means the id, and the row
+ * they would have keyed off is often the thing that went missing first: the
+ * previous behaviour looked the user up, found nothing because a partial delete
+ * had already half-succeeded, and reported "no account" while leaving the
+ * transactions, referrals and pending request still sitting there. Now a repeat
+ * delete is a second pass that finishes the job, and an id with genuinely nothing
+ * against it anywhere still reports as unknown.
+ *
  * Media objects uploaded with a testimony are not touched: they live in a private
  * bucket and are shared by nothing but name, so a deleted row leaves an orphaned
  * file rather than a broken card.
@@ -59,8 +74,7 @@ export async function deleteUser(telegramId: string): Promise<PurgeResult | null
       .delete(users)
       .where(eq(users.telegramId, telegramId))
       .returning();
-    const user = removed[0];
-    if (!user) return null;
+    const user = removed[0] ?? null;
 
     // Children first. There are no foreign keys to cascade on, so the order is
     // by convention rather than enforced, and deleting the parent first would
@@ -77,11 +91,38 @@ export async function deleteUser(telegramId: string): Promise<PurgeResult | null
       .delete(testimonies)
       .where(eq(testimonies.submittedBy, telegramId))
       .returning({ id: testimonies.id });
-    await tx.delete(accessRequests).where(eq(accessRequests.telegramId, telegramId));
-    await tx.delete(whitelist).where(eq(whitelist.telegramId, telegramId));
-    await tx.delete(admins).where(eq(admins.telegramId, telegramId));
+    const access = await tx
+      .delete(accessRequests)
+      .where(eq(accessRequests.telegramId, telegramId))
+      .returning({ telegramId: accessRequests.telegramId });
+    const allowed = await tx
+      .delete(whitelist)
+      .where(eq(whitelist.telegramId, telegramId))
+      .returning({ telegramId: whitelist.telegramId });
+    const promoted = await tx
+      .delete(admins)
+      .where(eq(admins.telegramId, telegramId))
+      .returning({ telegramId: admins.telegramId });
 
-    return { user, transactions: txn.length, referrals: refs.length, testimonies: tst.length };
+    const result: PurgeResult = {
+      user,
+      transactions: txn.length,
+      referrals: refs.length,
+      testimonies: tst.length,
+      accessRequests: access.length,
+      whitelist: allowed.length,
+      adminPromotions: promoted.length,
+      hadAccount: user !== null,
+    };
+
+    const total =
+      result.transactions +
+      result.referrals +
+      result.testimonies +
+      result.accessRequests +
+      result.whitelist +
+      result.adminPromotions;
+    return user || total > 0 ? result : null;
   });
 }
 

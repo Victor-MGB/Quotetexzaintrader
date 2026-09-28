@@ -1,6 +1,6 @@
 import type { AppContext } from "../core/bot.js";
 import { loginKeyboard, registerKeyboard } from "../modules/auth/index.js";
-import { accessVerdict, logout, touch } from "../modules/auth/session.js";
+import { accessVerdict, logout, sessionTimeoutMinutes, touch } from "../modules/auth/session.js";
 import { findUserByTelegramId } from "../modules/auth/users.js";
 
 /**
@@ -40,15 +40,18 @@ export async function requireSession(ctx: AppContext): Promise<boolean> {
 }
 
 function screenFor(verdict: "needs-login" | "needs-account", id: string): string {
+  // The number is read from the config rather than written into the sentence, so
+  // changing SESSION_TIMEOUT_MINUTES cannot leave the bot claiming a limit it is
+  // not enforcing.
   if (verdict === "needs-login") {
-    return `⏰ Your session ended after 30 minutes of inactivity.
+    return `⏰ Your session ended after ${sessionTimeoutMinutes()} minutes of inactivity.
 
 For your security, please log in again before you continue.`;
   }
 
   return `👋 You need an account to continue.
 
-Telegram ID: ${id}
+🆔 Your Telegram ID: ${id}
 
-Create an account to deposit, withdraw, and track your balance.`;
+Create an account to deposit, withdraw, and track your balance. An admin has to approve you before anything here opens.`;
 }

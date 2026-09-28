@@ -6,13 +6,13 @@ import { logger } from "../../core/logger.js";
 import { describeDeposit, describeDepositStatus, envAddress, setSetting } from "../../core/settings.js";
 import { escapeHtml } from "../../shared/html.js";
 import { logout } from "../auth/session.js";
-import { findUserByTelegramId, listUsers, type UserRow } from "../auth/users.js";
+import { listUsers, type UserRow } from "../auth/users.js";
 import { WALLETS, sanitizeAddress, walletByKey } from "../main/content.js";
 import { grandTotals, referrerLeaderboard, type ReferrerRow } from "../referrals/store.js";
 import { refreshMenu } from "../menu.js";
 import { userButton } from "./balance.js";
 import { isLocked } from "./store.js";
-import { allowUser, disallowUser, isAdmin, isAllowed, listAllowed, setLock } from "./store.js";
+import { allowUser, disallowUser, isAdmin, isAllowed, isPermanentAdmin, listAllowed, setLock } from "./store.js";
 import { purgeMember } from "./purge.js";
 import {
   countPendingRequests,
@@ -90,7 +90,7 @@ function requestPendingText(previous: AccessRequestStatus | null, id: string): s
 
 🆔 Your Telegram ID: ${id}
 
-You will be notified here the moment it is approved or rejected.`;
+You will be notified here the moment it is approved or rejected. Once you are approved you can create an account and log in — nothing in the bot opens before that.`;
 
   if (previous === "rejected") {
     return `🔁 Your earlier request was rejected, so this is a fresh one.
@@ -427,29 +427,29 @@ admin.command("deleteuser", async (ctx) => {
     return;
   }
 
-  const target = await findUserByTelegramId(id);
-  if (!target) {
-    await ctx.reply(`No account with Telegram ID ${id}.`);
-    return;
-  }
-
-  // An admin is not deleted from under themselves: their access lives in
-  // ADMIN_IDS and the admins table, so removing the account would leave an admin
-  // who passes every check with nothing behind it.
+  // Only ADMIN_IDS can survive a delete, because it is environment config rather
+  // than a row, so that is the one case worth stopping for. A runtime promotion is
+  // demoted as part of the delete.
   const purged = await purgeMember(id);
   if (!purged) {
     await ctx.reply(
-      isAdmin(id)
-        ? `⚠️ ${id} is an admin. Demote them with /demote ${id} first, then delete the account.`
-        : `⚠️ Nothing was deleted for ${id}.`,
+      isPermanentAdmin(id)
+        ? `⚠️ ${id} is a permanent admin in ADMIN_IDS. Remove them from the environment first, then run this again.`
+        : `Nothing at all is recorded for ${id}. No account, no transactions, no referrals, no testimonies and no pending request — so there was nothing to delete.`,
     );
     return;
   }
 
-  await ctx.reply(
-    `🗑 Deleted account #${purged.user.id} (${purged.user.username ? `@${purged.user.username}` : purged.user.firstName ?? "no name"}${purged.user.email ? ` · ${purged.user.email}` : ""}).
+  const who = purged.user
+    ? `#${purged.user.id} (${purged.user.username ? `@${purged.user.username}` : purged.user.firstName ?? "no name"}${purged.user.email ? ` · ${purged.user.email}` : ""})`
+    : `${id} had no account row left, so the remaining rows are what was cleared`;
 
-Also removed: ${purged.transactions} transaction(s), ${purged.referrals} referral record(s), ${purged.testimonies} testimonies, their bot access and their login session. They have been told, and they will be asked to register again if they come back.`,
+  await ctx.reply(
+    `🗑 Deleted ${who}.
+
+Also removed: ${purged.transactions} transaction(s), ${purged.referrals} referral record(s), ${purged.testimonies} testimonies, ${purged.accessRequests} access request(s), ${purged.whitelist} access grant(s) and ${purged.adminPromotions} admin promotion(s).
+
+Their bot access and login session are gone too, so every button they tap now asks them for access, and an admin has to approve them again before anything opens. They have been told.`,
   );
 });
 

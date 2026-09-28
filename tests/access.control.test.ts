@@ -284,8 +284,33 @@ describe("deleting a member removes all of them", { skip: skip ?? false }, () =>
     const purged = await users.deleteUser(MEMBER);
 
     assert.ok(purged, "the delete reports what it removed");
-    assert.equal(purged.user.telegramId, MEMBER);
+    assert.equal(purged.hadAccount, true);
+    assert.equal(purged.user?.telegramId, MEMBER);
     assert.equal(await users.findUserByTelegramId(MEMBER), null);
+  });
+
+  it("finishes the job when the account row has already gone", async () => {
+    // The half-failed delete this used to refuse: the user row is missing, so the
+    // old code looked it up, found nothing, told the admin "no account" and left
+    // every remaining row pointing at an id that was supposed to be gone.
+    await seed();
+    await db.delete(schema.users).where(eq(schema.users.telegramId, MEMBER));
+
+    const purged = await users.deleteUser(MEMBER);
+
+    assert.ok(purged, "leftovers are still worth deleting");
+    assert.equal(purged.hadAccount, false);
+    assert.equal(purged.user, null);
+    assert.equal(purged.transactions, 2);
+    assert.equal(purged.referrals, 2);
+    assert.equal(purged.testimonies, 1);
+    assert.equal(purged.accessRequests, 1);
+    assert.equal(purged.whitelist, 1);
+
+    const txns = db.select().from(schema.transactions).where(eq(schema.transactions.telegramId, MEMBER));
+    const pending = db.select().from(schema.accessRequests).where(eq(schema.accessRequests.telegramId, MEMBER));
+    assert.equal(await matched(txns), 0);
+    assert.equal(await matched(pending), 0);
   });
 
   it("leaves no transaction, referral or testimony of theirs behind", async () => {
@@ -362,6 +387,181 @@ describe("deleting a member removes all of them", { skip: skip ?? false }, () =>
 
     const account = await users.findUserByTelegramId(MEMBER);
     assert.equal(session.accessVerdict(MEMBER, account !== null), "needs-account");
+  });
+});
+
+describe("a purge clears what this process remembers", { skip: skip ?? false }, () => {
+  /** A synthetic referrer, so the attribution middleware has something to record. */
+  const REFERRER = "1000000005";
+  let purge: typeof import("../src/modules/admin/purge.js");
+  let session: typeof import("../src/modules/auth/session.js");
+  let store: typeof import("../src/modules/admin/store.js");
+  let referrals: typeof import("../src/modules/referrals/index.js");
+  let support: typeof import("../src/modules/support/index.js");
+  let db: typeof import("../src/core/db.js")["db"];
+  let schema: typeof import("../src/db/schema.js");
+  let sent: { chatId: unknown; text: string }[];
+
+  before(async () => {
+    purge = await import("../src/modules/admin/purge.js");
+    session = await import("../src/modules/auth/session.js");
+    store = await import("../src/modules/admin/store.js");
+    referrals = await import("../src/modules/referrals/index.js");
+    support = await import("../src/modules/support/index.js");
+    ({ db } = await import("../src/core/db.js"));
+    schema = await import("../src/db/schema.js");
+    const { bot } = await import("../src/core/bot.js");
+    await assertSchema();
+
+    sent = [];
+    bot.api.sendMessage = (async (chatId: number | string, text: string) => {
+      sent.push({ chatId, text });
+      return { message_id: 1, date: 0, chat: { id: Number(chatId), type: "private" } };
+    }) as never;
+  });
+
+  beforeEach(async () => {
+    sent.length = 0;
+    await db.delete(schema.users).where(eq(schema.users.telegramId, MEMBER));
+    await db.delete(schema.whitelist).where(eq(schema.whitelist.telegramId, MEMBER));
+  });
+
+  after(async () => {
+    await db.delete(schema.referrals).where(eq(schema.referrals.inviteeId, MEMBER));
+  });
+
+  afterEach(async () => {
+    session.logout(MEMBER);
+    support.forgetSupportState(MEMBER);
+    await db.delete(schema.users).where(eq(schema.users.telegramId, MEMBER));
+    await db.delete(schema.admins).where(eq(schema.admins.telegramId, MEMBER));
+  });
+
+  /** Puts the member in the state that used to survive a delete. */
+  async function arm(): Promise<void> {
+    await db.insert(schema.users).values({ telegramId: MEMBER, firstName: "Member", email: "m@example.test" });
+    await db.insert(schema.whitelist).values({ telegramId: MEMBER }).onConflictDoNothing();
+    await store.loadAccess();
+    session.login(MEMBER);
+  }
+
+  it("ends the session and the bot access, not just the row", async () => {
+    await arm();
+    assert.equal(session.isLoggedIn(MEMBER), true);
+    assert.equal(store.isAllowed(MEMBER), true);
+
+    await purge.purgeMember(MEMBER, { notify: false });
+
+    assert.equal(session.isLoggedIn(MEMBER), false, "the live session cannot outlive the account");
+    assert.equal(store.isAllowed(MEMBER), false, "and neither can the cached whitelist entry");
+    const accounts = await db.select().from(schema.users).where(eq(schema.users.telegramId, MEMBER));
+    assert.equal(accounts.length, 0);
+  });
+
+  it("demotes a promoted admin instead of refusing to delete them", async () => {
+    // The combination that made a deleted member untouchable: the account row was
+    // already gone, so the delete reported "no account" and returned, while the
+    // admins row kept granting every screen. A runtime promotion is a row, so it
+    // goes as part of the delete.
+    await db.insert(schema.users).values({ telegramId: MEMBER, firstName: "Member", email: "m@example.test" });
+    await db
+      .insert(schema.admins)
+      .values({ telegramId: MEMBER, addedBy: TEST_ADMIN_ID })
+      .onConflictDoNothing();
+    await store.loadAccess();
+    assert.equal(store.isAdmin(MEMBER), true, "the promotion is what grants access without an account");
+
+    const purged = await purge.purgeMember(MEMBER, { notify: false });
+
+    assert.ok(purged, "not a refusal");
+    // The promotion is already gone by the time the sweep runs, because
+    // demoting is what makes the rest of the delete possible.
+    assert.equal(purged.adminPromotions, 0, "the demotion happened first, so the sweep found nothing left");
+    assert.equal(purged.hadAccount, true);
+    assert.equal(store.isAdmin(MEMBER), false, "and the access goes with it");
+
+    const promoted = await db.select().from(schema.admins).where(eq(schema.admins.telegramId, MEMBER));
+    assert.equal(promoted.length, 0);
+  });
+
+  it("still refuses a permanent admin, whose access is not a row", async () => {
+    // The one case worth stopping for: ADMIN_IDS outlives every delete, so a
+    // mis-click cannot be undone by removing rows.
+    assert.equal(await purge.purgeMember(TEST_ADMIN_ID, { notify: false }), null);
+  });
+
+  it("tells the member to send /start rather than offering a button the gate refuses", async () => {
+    await arm();
+
+    await purge.purgeMember(MEMBER);
+
+    assert.equal(sent.length, 1, "the member is not left guessing");
+    const message = sent[0];
+    assert.equal(message?.chatId, MEMBER);
+    assert.match(message?.text ?? "", /\/start/, "the one route that actually works is named");
+    assert.doesNotMatch(message?.text ?? "", /Register \/ Create Account/, "no dead button back into the gate");
+  });
+
+  it("clears a half-typed support message and referral note", async () => {
+    await arm();
+
+    // referralCapture is the only thing that sets the note, so it is driven
+    // through its own middleware rather than reaching into the map.
+    const capture = async (): Promise<void> => {
+      await referrals.referralCapture(
+        { from: { id: Number(MEMBER) }, msg: { text: `/start ref_${REFERRER}` } } as never,
+        (async () => undefined) as never,
+      );
+    };
+
+    await capture();
+    assert.notEqual(referrals.consumeReferralNote(MEMBER), "", "the note was set, then read and cleared");
+
+    await capture();
+    support.beginSupport(MEMBER);
+
+    await purge.purgeMember(MEMBER, { notify: false });
+
+    assert.equal(referrals.consumeReferralNote(MEMBER), "", "no referral credit survives the account");
+    assert.equal(support.isComposingSupport(MEMBER), false, "and no half-typed message either");
+  });
+});
+
+describe("the welcome screen is not a door", () => {
+  let welcomeText: typeof import("../src/modules/start/index.js")["welcomeText"];
+
+  before(async () => {
+    ({ welcomeText } = await import("../src/modules/start/index.js"));
+  });
+
+  it("says an admin has to approve you before you have access", () => {
+    const text = welcomeText("Newcomer", false, "");
+
+    assert.match(text, /Welcome to/);
+    assert.match(text, /admin has to approve you first/i);
+    assert.match(text, /Nothing in the bot opens until that happens/i);
+  });
+
+  it("does not tell an approved member they are still waiting", () => {
+    const text = welcomeText("Member", true, "");
+
+    assert.match(text, /Welcome to/);
+    assert.doesNotMatch(text, /approve you first/i);
+  });
+
+  it("carries no main menu button in either case", () => {
+    // The button is a reply_markup, not copy, so what is asserted here is that
+    // the wording never points at a menu the welcome does not offer.
+    for (const approved of [true, false]) {
+      const text = welcomeText("Someone", approved, "");
+      assert.doesNotMatch(text, /main menu/i);
+    }
+  });
+
+  it("still surfaces a referral note when there is one", () => {
+    const text = welcomeText("Newcomer", false, "\n\n👥 You joined through a referral link.");
+
+    assert.match(text, /joined through a referral link/);
   });
 });
 

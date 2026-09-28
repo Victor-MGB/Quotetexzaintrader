@@ -10,6 +10,31 @@ const support = new Composer<AppContext>();
 const composing = new Map<string, boolean>();
 const adminReply = new Map<string, { targetId: string; notifyMessageId?: number }>();
 
+/**
+ * Throws away a member's half-typed support message and any admin reply aimed at
+ * them.
+ *
+ * Called when an admin deletes the account. A deleted member is off the whitelist,
+ * so their next message would be refused by the gate before it reached the
+ * composer — but the flag would sit in memory until the process restarted, and a
+ * later re-registration under the same id would silently resume a conversation
+ * that started before the account existed.
+ */
+export function forgetSupportState(telegramId: string): void {
+  composing.delete(telegramId);
+  adminReply.delete(telegramId);
+}
+
+/** Whether this member is part-way through typing a support message. */
+export function isComposingSupport(telegramId: string): boolean {
+  return composing.has(telegramId);
+}
+
+/** Marks this member as waiting to type a support message. */
+export function beginSupport(telegramId: string): void {
+  composing.set(telegramId, true);
+}
+
 const cancelKeyboard = () =>
   new InlineKeyboard().text("Cancel", "support:cancel").text("🏠 Main Menu", "main:menu");
 const replyBackKeyboard = () =>
@@ -25,7 +50,7 @@ support.callbackQuery("support:cancel", async (ctx) => {
 
 support.callbackQuery("support:start", async (ctx) => {
   const id = String(ctx.from?.id ?? 0);
-  composing.set(id, true);
+  beginSupport(id);
   const from = ctx.from;
   const name = from?.username ? `@${from.username}` : from?.first_name ?? "you";
   await ctx.answerCallbackQuery();

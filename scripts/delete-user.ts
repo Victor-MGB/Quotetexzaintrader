@@ -18,6 +18,7 @@
  */
 import { db } from "../src/core/db.js";
 import { logger } from "../src/core/logger.js";
+import { isAdmin } from "../src/modules/admin/store.js";
 import { purgeMember } from "../src/modules/admin/purge.js";
 import { findUserByTelegramId } from "../src/modules/auth/users.js";
 
@@ -36,18 +37,23 @@ const notify = flags.has("--notify");
 
 const user = await findUserByTelegramId(id);
 if (!user) {
-  console.log(`No account with Telegram ID ${id}. Nothing to delete.`);
-  process.exit(0);
+  // There may still be rows against this id even with no account: a previous
+  // delete that only half-succeeded, or an access request from someone who never
+  // registered. Purge sweeps by id, so it is asked to run anyway and will report
+  // "nothing at all is recorded" if this really is an id with no history.
+  console.log(`No account row for Telegram ID ${id}. Sweeping anything left against that id anyway.`);
 }
 
-console.log("About to delete:");
-console.log(`  id       #${user.id}`);
-console.log(`  telegram ${user.telegramId}`);
-console.log(`  username ${user.username ?? "-"}`);
-console.log(`  name     ${[user.firstName, user.lastName].filter(Boolean).join(" ") || "-"}`);
-console.log(`  email    ${user.email ?? "-"}`);
-console.log(`  balance  ${user.balance}`);
-console.log(`  joined   ${user.createdAt.toISOString()}`);
+if (user) {
+  console.log("About to delete:");
+  console.log(`  id       #${user.id}`);
+  console.log(`  telegram ${user.telegramId}`);
+  console.log(`  username ${user.username ?? "-"}`);
+  console.log(`  name     ${[user.firstName, user.lastName].filter(Boolean).join(" ") || "-"}`);
+  console.log(`  email    ${user.email ?? "-"}`);
+  console.log(`  balance  ${user.balance}`);
+  console.log(`  joined   ${user.createdAt.toISOString()}`);
+}
 
 if (!assumedYes) {
   const answer = process.stdin.isTTY ? await ask() : "n";
@@ -60,16 +66,28 @@ if (!assumedYes) {
 const purged = await purgeMember(id, { notify });
 if (!purged) {
   // purgeMember refuses admins, because their access lives in ADMIN_IDS and the
-  // admins table rather than in the account row.
-  console.error(`Nothing was deleted for ${id}. Is it an admin? Demote with /demote first.`);
+  // admins table rather than in the account row. Everything else reaching this
+  // point means no table had a row for this id at all.
+  console.error(
+    isAdmin(id)
+      ? `Nothing was deleted for ${id}. They are an admin — demote first, then delete the account.`
+      : `Nothing at all is recorded for ${id}: no account, transactions, referrals, testimonies or requests.`,
+  );
   process.exit(1);
 }
 
-console.log(`\nDeleted account #${purged.user.id} (${purged.user.telegramId}).`);
-console.log(`  transactions  ${purged.transactions}`);
-console.log(`  referrals     ${purged.referrals}`);
-console.log(`  testimonies   ${purged.testimonies}`);
-console.log("  bot access, admin promotion and any pending request also removed.");
+console.log(
+  purged.user
+    ? `\nDeleted account #${purged.user.id} (${purged.user.telegramId}).`
+    : `\nNo account row was left for ${id}; removed the remaining rows.`,
+);
+console.log(`  transactions    ${purged.transactions}`);
+console.log(`  referrals       ${purged.referrals}`);
+console.log(`  testimonies     ${purged.testimonies}`);
+console.log(`  access requests ${purged.accessRequests}`);
+console.log(`  access grants   ${purged.whitelist}`);
+console.log(`  admin rows      ${purged.adminPromotions}`);
+console.log("  bot access and the login session were ended too.");
 console.log(notify ? "  the member was told." : "  the member was not told (pass --notify to DM them).");
 
 await db.$client.end();
