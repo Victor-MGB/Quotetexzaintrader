@@ -134,6 +134,11 @@ const DRAFT_TTL_MS = 10 * 60_000;
 
 const drafting = new Map<string, Draft>();
 
+/** Drops a member's unsubmitted draft, so a deleted account cannot publish one. */
+export function forgetDraft(telegramId: string): void {
+  drafting.delete(telegramId);
+}
+
 /** Returns a live draft, discarding one that has been abandoned too long. */
 function liveDraft(id: string): Draft | null {
   const draft = drafting.get(id);

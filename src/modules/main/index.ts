@@ -30,6 +30,17 @@ type Compose =
 
 const composing = new Map<string, Compose>();
 
+/**
+ * Throws away a half-finished deposit, withdrawal, promo claim or report.
+ *
+ * Called when an admin deletes the account. Without it a member deleted
+ * mid-withdrawal could type an amount and have it recorded against an id that no
+ * longer exists, long after the row was supposed to be gone.
+ */
+export function forgetComposing(telegramId: string): void {
+  composing.delete(telegramId);
+}
+
 const HOME_TEXT = `🏠 <b>MAIN MENU</b>
 
 What would you like to do?`;

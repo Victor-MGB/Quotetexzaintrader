@@ -62,6 +62,30 @@ export const admins = pgTable("admins", {
   addedAt: timestamp("added_at").notNull().defaultNow(),
 });
 
+export const ACCESS_REQUEST_STATUSES = ["pending", "approved", "rejected"] as const;
+export type AccessRequestStatus = (typeof ACCESS_REQUEST_STATUSES)[number];
+
+// One row per person who has asked for access, keyed by telegram id so repeated
+// /start taps update the same request instead of stacking up duplicates.
+//
+// It is a table rather than an in-memory Set because the request is only useful
+// if it survives a restart: a member who taps Start while the bot is down, or
+// whose notification never reached an admin, would otherwise wait forever with
+// nobody aware they were waiting. `notifiedAt` is what keeps a member from
+// re-pinging every admin on every keystroke, and `status` is what the Approve and
+// Reject buttons move.
+export const accessRequests = pgTable("access_requests", {
+  telegramId: text("telegram_id").primaryKey(),
+  username: text(),
+  firstName: text(),
+  lastName: text(),
+  status: text("status").$type<AccessRequestStatus>().notNull().default("pending"),
+  requestedAt: timestamp("requested_at").notNull().defaultNow(),
+  notifiedAt: timestamp("notified_at"),
+  decidedAt: timestamp("decided_at"),
+  decidedBy: text("decided_by"),
+});
+
 export const TESTIMONY_STATUSES = ["pending", "published", "deleted"] as const;
 export type TestimonyStatus = (typeof TESTIMONY_STATUSES)[number];
 

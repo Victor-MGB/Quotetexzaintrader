@@ -50,6 +50,13 @@
       "when": 1790484640571,
       "tag": "0006_wonderful_maximus",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790592677370,
+      "tag": "0007_ancient_marvel_boy",
+      "breakpoints": true
     }
   ]
 }

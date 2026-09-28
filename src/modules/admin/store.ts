@@ -52,6 +52,17 @@ export async function disallowUser(telegramId: string): Promise<void> {
   allowed.delete(telegramId);
 }
 
+/**
+ * Drops the cached access decision for someone whose rows have been deleted by
+ * a purge. The database work is done elsewhere; without this the in-memory sets
+ * would keep granting access to an account that no longer exists, and the
+ * whitelisted role would survive until the next restart.
+ */
+export function forgetAccess(telegramId: string): void {
+  allowed.delete(telegramId);
+  promoted.delete(telegramId);
+}
+
 export async function listAllowed(): Promise<string[]> {
   return [...allowed];
 }

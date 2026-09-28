@@ -1,9 +1,6 @@
 import { Composer, InlineKeyboard } from "grammy";
 import type { AppContext } from "../../core/bot.js";
 import { requireSession } from "../../shared/requireSession.js";
-import { loginKeyboard, registerKeyboard } from "../auth/index.js";
-import { isLoggedIn, touch } from "../auth/session.js";
-import { findUserByTelegramId } from "../auth/users.js";
 import { walletByKey } from "../main/content.js";
 import { showDepositAddress } from "../main/screen.js";
 import { PLANS, planByKey } from "./plans.js";
@@ -41,33 +38,8 @@ Choose a plan to see full details.`,
 });
 
 plans.callbackQuery("plans:view", async (ctx) => {
-  const from = ctx.from;
-  if (!from) return;
+  if (!(await requireSession(ctx))) return;
 
-  const id = String(from.id);
-
-  if (!isLoggedIn(id)) {
-    const user = await findUserByTelegramId(id);
-    await ctx.answerCallbackQuery();
-    if (!user) {
-      await ctx.editMessageText(
-        `You need an account to view investment plans.
-
-Register to unlock access to available packages.`,
-        { reply_markup: registerKeyboard },
-      );
-    } else {
-      await ctx.editMessageText(
-        `Welcome back${from.username ? `, @${from.username}` : ""}.
-
-Login to continue.`,
-        { reply_markup: loginKeyboard },
-      );
-    }
-    return;
-  }
-
-  touch(id);
   await ctx.answerCallbackQuery();
   await ctx.editMessageText(
     `💰 <b>INVESTMENT PLANS</b>

@@ -5,6 +5,8 @@ import { logger } from "./core/logger.js";
 import { logDepositAddresses } from "./core/settings.js";
 import { applyBotProfile } from "./core/profile.js";
 import { rateLimit } from "./shared/middlewares/rateLimit.js";
+import { memberGate } from "./shared/middlewares/memberGate.js";
+import { startSessionWatchdog } from "./modules/auth/watchdog.js";
 import { start } from "./modules/start/index.js";
 import { main as mainMenu } from "./modules/main/index.js";
 import { plans } from "./modules/plans/index.js";
@@ -32,8 +34,12 @@ safe.use(rateLimit);
 safe.use(referralCapture);
 safe.use(adminGate);
 safe.use(start);
-safe.use(plans);
 safe.use(auth);
+// Everything below is member-only, so it all needs a live login. The auth
+// composer sits ahead of the gate deliberately: answering a password prompt
+// means having no session, which is exactly what the gate would refuse.
+safe.use(memberGate);
+safe.use(plans);
 safe.use(profile);
 // txn owns the admin "type the verified amount" step, so it must see text before
 // the main composer, which also handles message:text for member flows.
@@ -65,6 +71,8 @@ async function main(): Promise<void> {
 
   const { startBot } = await import("./core/bot.js");
   const server: Server | undefined = await startBot();
+  // Tells members their session ended instead of leaving them to trip over it.
+  startSessionWatchdog();
 
   const shutdown = async () => {
     logger.info("shutting down");
