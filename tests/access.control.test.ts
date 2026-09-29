@@ -474,9 +474,11 @@ describe("a purge clears what this process remembers", { skip: skip ?? false }, 
     const purged = await purge.purgeMember(MEMBER, { notify: false });
 
     assert.ok(purged, "not a refusal");
-    // The promotion is already gone by the time the sweep runs, because
-    // demoting is what makes the rest of the delete possible.
-    assert.equal(purged.adminPromotions, 0, "the demotion happened first, so the sweep found nothing left");
+    // The sweep removes the promotion itself, in the same transaction as the
+    // account, so the count is honest. Demoting in a separate statement first
+    // left this permanently zero and made a promoted member indistinguishable
+    // from an ordinary one in the reply.
+    assert.equal(purged.adminPromotions, 1, "the promotion is reported, not silently absorbed");
     assert.equal(purged.hadAccount, true);
     assert.equal(store.isAdmin(MEMBER), false, "and the access goes with it");
 
@@ -549,9 +551,10 @@ describe("the welcome screen is not a door", () => {
     assert.doesNotMatch(text, /approve you first/i);
   });
 
-  it("carries no main menu button in either case", () => {
+  it("never writes a menu into the copy, whatever the keyboard offers", () => {
     // The button is a reply_markup, not copy, so what is asserted here is that
-    // the wording never points at a menu the welcome does not offer.
+    // the wording never points at a menu the welcome might not carry. An approved
+    // logged-in member does get the button, so the copy stays button-agnostic.
     for (const approved of [true, false]) {
       const text = welcomeText("Someone", approved, "");
       assert.doesNotMatch(text, /main menu/i);
@@ -562,6 +565,118 @@ describe("the welcome screen is not a door", () => {
     const text = welcomeText("Newcomer", false, "\n\n👥 You joined through a referral link.");
 
     assert.match(text, /joined through a referral link/);
+  });
+});
+
+describe("what the welcome screen offers, by how far through the door they are", () => {
+  let start: typeof import("../src/modules/start/index.js")["start"];
+  let keyboardFor: typeof import("../src/modules/start/index.js")["keyboardFor"];
+  let session: typeof import("../src/modules/auth/session.js");
+  let mainMenuButton: typeof import("../src/modules/main/index.js")["mainMenuButton"];
+
+  /** A member who has been approved and logged in, so their keyboard is the last word. */
+  const THROUGH = "1000000004";
+  /** Never approved and never in ADMIN_IDS, so the welcome has to turn them away. */
+  const WAITING = "1000000005";
+  const me = { id: 1, is_bot: true, first_name: "bot", username: "quotex_zain_bot" };
+
+  before(async () => {
+    ({ start, keyboardFor } = await import("../src/modules/start/index.js"));
+    ({ mainMenuButton } = await import("../src/modules/main/index.js"));
+    session = await import("../src/modules/auth/session.js");
+  });
+
+  afterEach(() => {
+    session.logout(THROUGH);
+  });
+
+  type Kb = { inline_keyboard: { text: string; callback_data?: string }[][] };
+
+  function buttonData(kb: Kb): string[] {
+    return kb.inline_keyboard.flat().map((b) => b.callback_data ?? b.text);
+  }
+
+  function buttonLabels(kb: Kb): string[] {
+    return kb.inline_keyboard.flat().map((b) => b.text);
+  }
+
+  /** Runs the real Start handler for one telegram id and returns the keyboard it attached. */
+  async function startKeyboard(telegramId: string): Promise<unknown> {
+    const { Context } = await import("grammy");
+    const replies: { markup?: unknown }[] = [];
+    const api = {
+      sendMessage(_chat: unknown, _text: string, other?: { reply_markup?: unknown }) {
+        replies.push({ markup: other?.reply_markup });
+        return Promise.resolve({ message_id: 1, chat: { id: 0, type: "private" }, date: 0 });
+      },
+    };
+    const update = {
+      update_id: 1,
+      message: {
+        message_id: 1,
+        date: 0,
+        chat: { id: Number(telegramId), type: "private", first_name: "Member" },
+        from: { id: Number(telegramId), is_bot: false, first_name: "Member", username: "member" },
+        text: "/start",
+        entities: [{ type: "bot_command", offset: 0, length: 6 }],
+      },
+    };
+    const ctx = new Context(update as never, api as never, me as never);
+    await start.middleware()(ctx as never, async () => undefined);
+    return replies[0]?.markup;
+  }
+
+  it("offers nothing at all to someone an admin has not approved", async () => {
+    // The regression that started all of this: a Main Menu button on this screen
+    // said "you are in" to a member the gate had not let in. The absence is
+    // asserted through the real handler, because "no keyboard" is Start's choice,
+    // not the keyboard builder's.
+    assert.equal(await startKeyboard(WAITING), undefined);
+  });
+
+  it("offers Register to an approved member with no account", () => {
+    const kb = keyboardFor(THROUGH, false) as never as Kb;
+    const labels = buttonData(kb);
+    assert.equal(labels.length, 1);
+    assert.match(labels[0]!, /register/i);
+  });
+
+  it("offers Login to an approved member whose session lapsed", () => {
+    session.logout(THROUGH);
+    const kb = keyboardFor(THROUGH, true) as never as Kb;
+    const labels = buttonData(kb);
+    assert.equal(labels.length, 1);
+    assert.match(labels[0]!, /log ?in/i);
+  });
+
+  it("offers the Main Menu once an approved member is logged in", () => {
+    // The regression: an approved, logged-in member tapped /start and the welcome
+    // came back with nothing to press, so the only way on was to remember /menu.
+    session.login(THROUGH);
+
+    const kb = keyboardFor(THROUGH, true) as never as Kb;
+    const labels = buttonLabels(kb);
+    assert.equal(labels.length, 1);
+    assert.match(labels[0]!, /main menu/i);
+    assert.deepEqual(buttonData(kb), ["main:menu"], "and it leads where the menu lives");
+  });
+
+  it("and the real /start handler puts that button on the welcome", { skip: skip ?? false }, async () => {
+    // Gated on the database only because the handler looks up the account row to
+    // choose the button; the wiring itself needs no rows. An admin is used because
+    // adminGate admires them without a whitelist row, and they are the plainest
+    // case of "approved and logged in".
+    const { TEST_ADMIN_ID } = await import("./helpers/config.js");
+    session.login(TEST_ADMIN_ID);
+
+    const markup = (await startKeyboard(TEST_ADMIN_ID)) as Kb | undefined;
+    assert.ok(markup, "an approved logged-in member gets a keyboard, not a dead screen");
+    assert.match(buttonLabels(markup)[0] ?? "", /main menu/i);
+    assert.deepEqual(
+      buttonData(markup).sort(),
+      buttonData(mainMenuButton() as never as Kb).sort(),
+      "and it is the same button the rest of the bot uses",
+    );
   });
 });
 

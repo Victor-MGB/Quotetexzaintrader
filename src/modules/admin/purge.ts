@@ -8,7 +8,7 @@ import { forgetComposing } from "../main/index.js";
 import { forgetReferralNote } from "../referrals/index.js";
 import { forgetSupportState } from "../support/index.js";
 import { forgetDraft } from "../testimony/index.js";
-import { demoteAdmin, forgetAccess, isAdmin, isPermanentAdmin } from "./store.js";
+import { forgetAccess, isAdmin, isPermanentAdmin } from "./store.js";
 
 export interface PurgeOptions {
   /** Set false to delete silently, e.g. when a script is doing the cleanup. */
@@ -38,14 +38,18 @@ export async function purgeMember(telegramId: string, opts: PurgeOptions = {}): 
   // A runtime promotion is not a safety rail, it is a row. The live `admins` set
   // is the in-memory twin of that row, and it is checked ahead of the account
   // lookup by both `isAdmin` and `accessVerdict` — so a promoted member with no
-  // account was untouchable: the delete refused because they were an admin, and
-  // the admin check granted them every screen in the bot. That is the combination
-  // that left a deleted person still an admin. Demoting first is what makes
-  // "delete this person" mean the person.
-  if (isAdmin(telegramId)) {
-    await demoteAdmin(telegramId);
-    logger.info({ telegramId }, "demoted a promoted admin so the account could be purged");
-  }
+  // account used to be untouchable: the delete refused because they were an admin,
+  // and the admin check granted them every screen in the bot. That is the
+  // combination that left a deleted person still an admin.
+  //
+  // The row is removed by the sweep itself rather than by a demotion beforehand,
+  // for two reasons. Deleting it first meant the reported promotion count was
+  // always zero, so the admin reading "0 admin promotion(s)" had no way to tell a
+  // promoted member from an ordinary one. And the two statements were separate,
+  // so a failure between them left a member demoted but not deleted. Inside the
+  // one transaction there is nothing left to fall between. `forgetAccess` below
+  // clears the in-memory twin, and only once the rows are actually gone.
+  const wasPromoted = isAdmin(telegramId);
 
   // The sweep is keyed on the telegram id, not on the account row, so an admin
   // who repeats a delete finishes the job rather than being told there is nothing
@@ -67,15 +71,17 @@ export async function purgeMember(telegramId: string, opts: PurgeOptions = {}): 
       telegramId,
       userId: result.user?.id ?? null,
       hadAccount: result.hadAccount,
+      wasPromotedAdmin: wasPromoted,
       transactions: result.transactions,
       referrals: result.referrals,
       testimonies: result.testimonies,
       accessRequests: result.accessRequests,
+      adminPromotions: result.adminPromotions,
     },
     "member purged",
   );
 
-  if (opts.notify !== false) await notifyDeleted(telegramId, result);
+  if (opts.notify !== false) result.notified = await notifyDeleted(telegramId, result);
 
   return result;
 }
@@ -89,13 +95,17 @@ export async function purgeMember(telegramId: string, opts: PurgeOptions = {}): 
  * one route that works. /start is that route: it queues a fresh request with the
  * admins, exactly the path a brand new Telegram user takes, and an approval there
  * is what puts them back inside.
+ *
+ * Returns whether the message landed, because "they have been told" is a claim
+ * about the world. A member who has blocked the bot cannot be reached, and the
+ * admin running the delete has no other way to learn that.
  */
-async function notifyDeleted(telegramId: string, result: PurgeResult): Promise<void> {
+async function notifyDeleted(telegramId: string, result: PurgeResult): Promise<boolean> {
   const headline = result.hadAccount
     ? "🗑 Your account has been deleted by an admin."
     : "🗑 Your account is already gone. An admin has finished clearing out what was left of it.";
 
-  await bot.api
+  return bot.api
     .sendMessage(
       telegramId,
       `${headline}
@@ -107,5 +117,9 @@ will work until an admin approves you again.
 Send /start to ask for access, and they will be notified.`,
       { link_preview_options: { is_disabled: true } },
     )
-    .catch((err) => logger.warn({ err, telegramId }, "failed to tell member their account was deleted"));
+    .then(() => true)
+    .catch((err) => {
+      logger.warn({ err, telegramId }, "failed to tell member their account was deleted");
+      return false;
+    });
 }

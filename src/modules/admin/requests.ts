@@ -83,14 +83,6 @@ export async function requestAccess(who: AccessRequester): Promise<AccessOutcome
   return { row: rows[0]!, notify, firstTime: false, previous: existing.status };
 }
 
-/** Records that the admins have just been told, so the cooldown restarts. */
-export async function markNotified(telegramId: string): Promise<void> {
-  await db
-    .update(accessRequests)
-    .set({ notifiedAt: new Date() })
-    .where(eq(accessRequests.telegramId, telegramId));
-}
-
 export async function findRequest(telegramId: string): Promise<AccessRequestRow | null> {
   const rows = await db.select().from(accessRequests).where(eq(accessRequests.telegramId, telegramId)).limit(1);
   return rows[0] ?? null;
@@ -120,7 +112,12 @@ export async function countPendingRequests(): Promise<number> {
  * Guarded on the current status, so two admins tapping Approve and Reject at the
  * same moment cannot both record a decision: the loser is told the request was
  * already handled instead of quietly overwriting the winner. Returns null in that
- * case, which the caller reports as "already decided".
+ * case.
+ *
+ * That null covers two situations that need telling apart, and only one of them
+ * is a double tap. There may be no request row at all, because an admin can
+ * allow or reject somebody proactively who never tapped Start. `classifyDecision`
+ * is what separates the two for the caller; the update itself stays atomic.
  */
 export async function decideAccess(
   telegramId: string,
@@ -134,3 +131,20 @@ export async function decideAccess(
     .returning();
   return rows[0] ?? null;
 }
+
+export type DecisionKind = "fresh" | "repeat" | "unrequested";
+
+/**
+ * Turns a decideAccess result into something an admin can be told.
+ *
+ * The distinction matters because the two nulls mean opposite things. "Already
+ * decided" is a warning that a second tap did nothing, and an admin reading it
+ * about somebody they had just approved by hand would conclude the bot lost
+ * their approval when in fact the access was granted and never needed a request.
+ */
+export async function classifyDecision(decided: AccessRequestRow | null, telegramId: string): Promise<DecisionKind> {
+  if (decided) return "fresh";
+  const existing = await findRequest(telegramId);
+  return existing ? "repeat" : "unrequested";
+}
+

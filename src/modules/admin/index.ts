@@ -5,21 +5,24 @@ import { adminIds } from "../../core/config.js";
 import { logger } from "../../core/logger.js";
 import { describeDeposit, describeDepositStatus, envAddress, setSetting } from "../../core/settings.js";
 import { escapeHtml } from "../../shared/html.js";
+import { requireAdmin } from "../../shared/requireAdmin.js";
 import { logout } from "../auth/session.js";
 import { listUsers, type UserRow } from "../auth/users.js";
 import { WALLETS, sanitizeAddress, walletByKey } from "../main/content.js";
 import { grandTotals, referrerLeaderboard, type ReferrerRow } from "../referrals/store.js";
-import { refreshMenu } from "../menu.js";
+import { invalidateMenu, refreshMenu } from "../menu.js";
 import { userButton } from "./balance.js";
 import { isLocked } from "./store.js";
 import { allowUser, disallowUser, isAdmin, isAllowed, isPermanentAdmin, listAllowed, setLock } from "./store.js";
 import { purgeMember } from "./purge.js";
 import {
+  classifyDecision,
   countPendingRequests,
   decideAccess,
   listPendingRequests,
   requestAccess,
   type AccessRequestRow,
+  type DecisionKind,
 } from "./requests.js";
 import type { AccessRequestStatus } from "../../db/schema.js";
 
@@ -136,44 +139,92 @@ const decisionKeyboard = () =>
     .text("🔑 Login", "plans:login");
 
 /**
- * Grants access and tells the member. Returns false when the request had already
- * been decided, which is how a double tap is kept from messaging the member
- * twice.
+ * What a decision did, and whether the member was actually reached.
+ *
+ * `notified` is here because "has been told" is a claim about the world, not
+ * about intent. A member who has blocked the bot cannot be told anything, and an
+ * admin reading "✅ User 100 is now allowed and has been told" would go away
+ * believing they had. The decision itself is durable either way — the row is
+ * written and the access is real — so a failure to send costs the admin one
+ * follow-up, not the decision.
  */
-async function approveAccess(telegramId: string, byId: string): Promise<boolean> {
+export interface AccessDecision {
+  kind: DecisionKind;
+  notified: boolean;
+}
+
+/** Grants access and tells the member. */
+async function approveAccess(telegramId: string, byId: string): Promise<AccessDecision> {
   await allowUser(telegramId);
   const decided = await decideAccess(telegramId, "approved", byId);
+  const kind = await classifyDecision(decided, telegramId);
   replied.delete(telegramId);
 
-  await bot.api
+  const notified = await bot.api
     .sendMessage(
       telegramId,
       `✅ <b>Your access request has been approved.</b>\n\n` +
         `You can now create your account and start using the bot.`,
       { reply_markup: decisionKeyboard(), parse_mode: "HTML" },
     )
-    .catch((err) => logger.warn({ err, telegramId }, "failed to tell member they were approved"));
+    .then(() => true)
+    .catch((err) => {
+      logger.warn({ err, telegramId }, "failed to tell member they were approved");
+      return false;
+    });
 
-  return decided !== null;
+  return { kind, notified };
 }
 
 /** Turns the member away, tells them, and leaves the decision on the record. */
-async function rejectAccess(telegramId: string, byId: string): Promise<boolean> {
+async function rejectAccess(telegramId: string, byId: string): Promise<AccessDecision> {
   await disallowUser(telegramId);
   const decided = await decideAccess(telegramId, "rejected", byId);
+  const kind = await classifyDecision(decided, telegramId);
   replied.delete(telegramId);
   // A member who was let in and then rejected must not keep a live session.
   logout(telegramId);
 
-  await bot.api
+  const notified = await bot.api
     .sendMessage(
       telegramId,
       `⛔ <b>Your access request was rejected.</b>\n\n` +
         `You cannot use the bot right now. If you think this is a mistake, send /start to ask again.`,
     )
-    .catch((err) => logger.warn({ err, telegramId }, "failed to tell member they were rejected"));
+    .then(() => true)
+    .catch((err) => {
+      logger.warn({ err, telegramId }, "failed to tell member they were rejected");
+      return false;
+    });
 
-  return decided !== null;
+  return { kind, notified };
+}
+
+/**
+ * What an admin is told after a decision.
+ *
+ * The delivery caveat is appended rather than woven into every branch, so the
+ * one thing that is always true — the decision is recorded either way — is
+ * stated once and the failure to reach the member cannot be mistaken for a
+ * decision that did not happen.
+ */
+function decisionReply(id: string, outcome: AccessDecision, approved: boolean): string {
+  const { kind, notified } = outcome;
+  const undelivered = notified
+    ? ""
+    : `\n\n⚠️ I could not deliver the message to ${id} — they may have blocked the bot. The decision is saved, but they have not been told.`;
+
+  if (kind === "repeat") {
+    return `ℹ️ The request for ${id} was already decided. Their access is unchanged.${undelivered}`;
+  }
+  if (kind === "unrequested") {
+    return approved
+      ? `✅ ${id} was not waiting on a request, so they have been allowed anyway.${undelivered || " They have been told."}`
+      : `⛔ ${id} was not waiting on a request. They have been turned away.${undelivered || " They have been told."}`;
+  }
+  return approved
+    ? `✅ User ${id} is now allowed.${undelivered || " They have been told."}`
+    : `⛔ User ${id} was rejected.${undelivered || " They have been told."}`;
 }
 
 function idFromArgs(ctx: AppContext): string | null {
@@ -182,27 +233,23 @@ function idFromArgs(ctx: AppContext): string | null {
 }
 
 admin.callbackQuery(/^admin:allow_(\d+)$/, async (ctx) => {
-  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+  if (!(await requireAdmin(ctx))) return;
   const id = ctx.match[1];
   if (!id) return;
 
-  const fresh = await approveAccess(id, String(ctx.from?.id ?? 0));
-  await ctx.answerCallbackQuery(fresh ? "Approved" : "Already decided");
-  await ctx.editMessageText(
-    fresh ? `✅ User ${id} is now allowed and has been told.` : `ℹ️ The request for ${id} was already decided.`,
-  );
+  const outcome = await approveAccess(id, String(ctx.from?.id ?? 0));
+  await ctx.answerCallbackQuery(outcome.kind === "repeat" ? "Already decided" : "Approved");
+  await ctx.editMessageText(decisionReply(id, outcome, true));
 });
 
 admin.callbackQuery(/^admin:reject_(\d+)$/, async (ctx) => {
-  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+  if (!(await requireAdmin(ctx))) return;
   const id = ctx.match[1];
   if (!id) return;
 
-  const fresh = await rejectAccess(id, String(ctx.from?.id ?? 0));
-  await ctx.answerCallbackQuery(fresh ? "Rejected" : "Already decided");
-  await ctx.editMessageText(
-    fresh ? `⛔ User ${id} was rejected and has been told.` : `ℹ️ The request for ${id} was already decided.`,
-  );
+  const outcome = await rejectAccess(id, String(ctx.from?.id ?? 0));
+  await ctx.answerCallbackQuery(outcome.kind === "repeat" ? "Already decided" : "Rejected");
+  await ctx.editMessageText(decisionReply(id, outcome, false));
 });
 
 const REQUESTS_PER_PAGE = 8;
@@ -241,13 +288,13 @@ async function requestsPage(
 }
 
 admin.command("pending", async (ctx) => {
-  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+  if (!(await requireAdmin(ctx))) return;
   const view = await requestsPage(0);
   await ctx.reply(view.text, { reply_markup: view.markup, parse_mode: "HTML" });
 });
 
 admin.callbackQuery(/^admin:reqs_(\d+)$/, async (ctx) => {
-  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+  if (!(await requireAdmin(ctx))) return;
   const page = Number(ctx.match[1] ?? 0);
   await ctx.answerCallbackQuery();
   const view = await requestsPage(page);
@@ -255,42 +302,58 @@ admin.callbackQuery(/^admin:reqs_(\d+)$/, async (ctx) => {
 });
 
 admin.command("allow", async (ctx) => {
-  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+  if (!(await requireAdmin(ctx))) return;
   const id = idFromArgs(ctx);
   if (!id) {
     await ctx.reply("Usage: /allow <telegram-id>");
     return;
   }
-  const fresh = await approveAccess(id, String(ctx.from?.id ?? 0));
-  await ctx.reply(fresh ? `✅ User ${id} is now allowed and has been told.` : `ℹ️ The request for ${id} was already decided.`);
+  const outcome = await approveAccess(id, String(ctx.from?.id ?? 0));
+  await ctx.reply(decisionReply(id, outcome, true));
 });
 
 admin.command("reject", async (ctx) => {
-  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+  if (!(await requireAdmin(ctx))) return;
   const id = idFromArgs(ctx);
   if (!id) {
     await ctx.reply("Usage: /reject <telegram-id>");
     return;
   }
-  const fresh = await rejectAccess(id, String(ctx.from?.id ?? 0));
-  await ctx.reply(fresh ? `⛔ User ${id} was rejected and has been told.` : `ℹ️ The request for ${id} was already decided.`);
+  const outcome = await rejectAccess(id, String(ctx.from?.id ?? 0));
+  await ctx.reply(decisionReply(id, outcome, false));
 });
 
 admin.command("disallow", async (ctx) => {
-  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+  if (!(await requireAdmin(ctx))) return;
   const id = idFromArgs(ctx);
   if (!id) {
     await ctx.reply("Usage: /disallow <telegram-id>");
     return;
   }
-  await disallowUser(id);
-  logout(id);
-  replied.delete(id);
-  await ctx.reply(`User ${id} is no longer allowed. Their session has been ended too.`);
+
+  // An admin is not a member, so "no longer allowed" is not something this
+  // command can deliver. isAllowed answers true for every admin, so removing the
+  // whitelist row would have changed nothing while the reply insisted it had.
+  // /demote is the command that actually takes the access away.
+  if (isAdmin(id)) {
+    await ctx.reply(
+      isPermanentAdmin(id)
+        ? `⚠️ ${id} is a permanent admin in ADMIN_IDS, so they cannot be disallowed. Remove them from the environment to do it.`
+        : `⭐ ${id} is a promoted admin, so this would not take their access away. Use /demote ${id} first, then /disallow again.`,
+    );
+    return;
+  }
+
+  // Settling the request is part of revoking, not an extra courtesy. Left
+  // pending, the row keeps its live Approve and Reject buttons in /pending, and
+  // one tap on a stale Approve quietly hands the access back.
+  const outcome = await rejectAccess(id, String(ctx.from?.id ?? 0));
+  invalidateMenu(Number(id));
+  await ctx.reply(decisionReply(id, outcome, false) + " Their session has been ended too.");
 });
 
 admin.command("list", async (ctx) => {
-  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+  if (!(await requireAdmin(ctx))) return;
   const ids = await listAllowed();
   const text = ids.length ? ids.join("\n") : "No allowed users yet.";
   await ctx.reply(`Allowed users:\n${text}`);
@@ -330,7 +393,7 @@ function usersPage(all: UserRow[], page: number): { text: string; markup: Inline
 }
 
 admin.command("users", async (ctx) => {
-  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const all = await listUsers();
   if (!all.length) {
@@ -343,7 +406,7 @@ admin.command("users", async (ctx) => {
 });
 
 admin.callbackQuery(/^admin:users_(\d+)$/, async (ctx) => {
-  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const all = await listUsers();
   const page = Number(ctx.match[1] ?? 0);
@@ -398,14 +461,14 @@ async function referralsPage(page: number): Promise<{ text: string; markup: Inli
 }
 
 admin.command("referrals", async (ctx) => {
-  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const view = await referralsPage(0);
   await ctx.reply(view.text, { reply_markup: view.markup, parse_mode: "HTML" });
 });
 
 admin.callbackQuery(/^admin:referrals_(\d+)$/, async (ctx) => {
-  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const page = Number(ctx.match[1] ?? 0);
   await ctx.answerCallbackQuery();
@@ -414,7 +477,7 @@ admin.callbackQuery(/^admin:referrals_(\d+)$/, async (ctx) => {
 });
 
 admin.command("deleteuser", async (ctx) => {
-  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const self = String(ctx.from?.id ?? 0);
   const id = idFromArgs(ctx);
@@ -444,29 +507,37 @@ admin.command("deleteuser", async (ctx) => {
     ? `#${purged.user.id} (${purged.user.username ? `@${purged.user.username}` : purged.user.firstName ?? "no name"}${purged.user.email ? ` · ${purged.user.email}` : ""})`
     : `${id} had no account row left, so the remaining rows are what was cleared`;
 
+  // The message to the member goes out before this reply is written, so whether
+  // it landed is known here and can be reported rather than assumed.
+  const notified = purged.notified;
+
   await ctx.reply(
     `🗑 Deleted ${who}.
 
 Also removed: ${purged.transactions} transaction(s), ${purged.referrals} referral record(s), ${purged.testimonies} testimonies, ${purged.accessRequests} access request(s), ${purged.whitelist} access grant(s) and ${purged.adminPromotions} admin promotion(s).
 
-Their bot access and login session are gone too, so every button they tap now asks them for access, and an admin has to approve them again before anything opens. They have been told.`,
+Their bot access and login session are gone too, so every button they tap now asks them for access, and an admin has to approve them again before anything opens.${
+      notified
+        ? " They have been told."
+        : ` ⚠️ I could not deliver a message to ${id} — they may have blocked the bot, so they have not been told.`
+    }`,
   );
 });
 
 admin.command("lock", async (ctx) => {
-  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+  if (!(await requireAdmin(ctx))) return;
   await setLock(true);
   await ctx.reply("Bot locked. Buttons hidden from all non-admins.");
 });
 
 admin.command("unlock", async (ctx) => {
-  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+  if (!(await requireAdmin(ctx))) return;
   await setLock(false);
   await ctx.reply("Bot unlocked. Approved users have access.");
 });
 
 admin.command("status", async (ctx) => {
-  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+  if (!(await requireAdmin(ctx))) return;
   await ctx.reply(`Locked: ${isLocked() ? "yes" : "no"}\nApproved users: ${(await listAllowed()).length}`);
 });
 
@@ -476,7 +547,7 @@ function argsOf(ctx: AppContext): string[] {
 }
 
 admin.command("setaddress", async (ctx) => {
-  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const [key, ...rest] = argsOf(ctx);
   const address = rest.join(" ").trim();
@@ -505,7 +576,7 @@ admin.command("setaddress", async (ctx) => {
 });
 
 admin.command("addresses", async (ctx) => {
-  if (!isAdmin(String(ctx.from?.id ?? 0))) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const lines = await Promise.all(WALLETS.map(async (w) => describeDepositStatus(await describeDeposit(w))));
   await ctx.reply(`Deposit addresses:\n\n${lines.join("\n")}`);

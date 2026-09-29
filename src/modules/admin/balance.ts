@@ -3,6 +3,7 @@ import type { AppContext } from "../../core/bot.js";
 import { bot } from "../../core/bot.js";
 import { logger } from "../../core/logger.js";
 import { escapeHtml } from "../../shared/html.js";
+import { requireAdmin } from "../../shared/requireAdmin.js";
 import { findUserByTelegramId, type UserRow } from "../auth/users.js";
 import { buildDashboard } from "../dashboard/index.js";
 import { describeTransaction } from "../transactions/admin.js";
@@ -37,12 +38,6 @@ const awaitingAmount = new Map<string, { telegramId: string; mode: BalanceMode; 
  * id is simply unknown and the member gets one extra message before it settles.
  */
 const lastAlert = new Map<string, number>();
-
-function guard(ctx: AppContext): boolean {
-  if (isAdmin(String(ctx.from?.id ?? 0))) return true;
-  void ctx.answerCallbackQuery("Admins only").catch(() => undefined);
-  return false;
-}
 
 function money(value: number): string {
   return `$${Number(value).toLocaleString("en-US")}`;
@@ -97,7 +92,7 @@ async function memberScreen(page: number, telegramId: string): Promise<{ text: s
 }
 
 balanceAdmin.callbackQuery(/^admin:user_(\d+)_(\d+)$/, async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const page = Number(ctx.match[1] ?? 0);
   const telegramId = ctx.match[2];
@@ -113,7 +108,7 @@ balanceAdmin.callbackQuery(/^admin:user_(\d+)_(\d+)$/, async (ctx) => {
 });
 
 balanceAdmin.callbackQuery(/^admin:user_set_(\d+)_(\d+)$/, async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const page = Number(ctx.match[1] ?? 0);
   const telegramId = ctx.match[2];
@@ -139,7 +134,7 @@ balanceAdmin.callbackQuery(/^admin:user_set_(\d+)_(\d+)$/, async (ctx) => {
 });
 
 balanceAdmin.callbackQuery(/^admin:user_adj_(\d+)_(\d+)$/, async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const page = Number(ctx.match[1] ?? 0);
   const telegramId = ctx.match[2];
@@ -168,14 +163,14 @@ balanceAdmin.callbackQuery(/^admin:user_adj_(\d+)_(\d+)$/, async (ctx) => {
 });
 
 balanceAdmin.callbackQuery("admin:bal_cancel", async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
   awaitingAmount.delete(String(ctx.from?.id ?? 0));
   await ctx.answerCallbackQuery("Cancelled");
   await ctx.reply("Cancelled. The balance was not changed.");
 });
 
 balanceAdmin.callbackQuery(/^admin:user_hist_(\d+)_(\d+)$/, async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const page = Number(ctx.match[1] ?? 0);
   const telegramId = ctx.match[2];

@@ -4,6 +4,7 @@ import { isAdmin, isAllowed } from "../admin/store.js";
 import { loginKeyboard, registerKeyboard } from "../auth/index.js";
 import { isLoggedIn } from "../auth/session.js";
 import { findUserByTelegramId } from "../auth/users.js";
+import { mainMenuButton } from "../main/index.js";
 import { consumeReferralNote } from "../referrals/index.js";
 
 const start = new Composer<AppContext>();
@@ -31,16 +32,18 @@ start.command("start", async (ctx) => {
 /**
  * Start is an introduction, not a door.
  *
- * It used to carry a "Main Menu" button, and that single button was most of the
- * access complaint: a member who was still waiting on an admin approval tapped it
- * and was walked through screens they were not allowed to see, because a working
- * menu button says "you are in" whether or not the gate agrees. The same button is
- * what a member whose account has just been deleted sees, so being removed and
- * being fully admitted look identical from inside the chat.
+ * The welcome used to carry a "Main Menu" button for everyone, and that single
+ * button was most of the access complaint: a member who was still waiting on an
+ * admin approval tapped it and was walked through screens they were not allowed
+ * to see, because a working menu button says "you are in" whether or not the gate
+ * agrees.
  *
- * So the welcome is words only. Whatever the member still needs is said in words
- * too — waiting for approval, or logged out — and the menu stays behind the login
- * gate where it belongs.
+ * The fix was to scope the button, not to remove it forever. An unapproved member
+ * now gets this screen as words only, with no keyboard attached at all. An
+ * approved member gets the button that matches where they actually are — Register,
+ * Login, or Main Menu — so the screen always says the same thing the gate would
+ * say. The gate, not this screen, is what decides what opens; memberGate sits
+ * ahead of every one of them.
  */
 export function welcomeText(handle: string, approved: boolean, referred: string): string {
   const opening =
@@ -64,16 +67,26 @@ export function welcomeText(handle: string, approved: boolean, referred: string)
 }
 
 /**
- * The one thing Start still offers an approved member: the way back in.
+ * What the welcome screen offers, decided by how far through the door they are.
  *
- * With the menu button gone this is the only route off the welcome screen for
- * someone whose session has lapsed or who never finished registering, so it has to
- * live here. A member who is already logged in gets nothing, because everything
- * they can reach is already open and a button leading nowhere is worse than none.
+ * Three states, and each one is the honest one for that member:
+ *
+ *  - Not approved. No keyboard at all. They are not merely unlogged in, they are
+ *    not admitted, and a Register button here would be a dead end. adminGate has
+ *    already put their request in front of the admin.
+ *  - Approved, no live session. The way in: Login if an account exists, Register
+ *    if it does not. This is the only route off the welcome for someone whose
+ *    session lapsed or who never finished registering.
+ *  - Approved and logged in. The Main Menu button. This is the one that used to be
+ *    gone for everyone, and that is what left an approved member tapping /start and
+ *    finding nothing to click. Carrying it here is safe because memberGate sits
+ *    ahead of the main menu, so a session that lapses between the tap and the
+ *    screen is caught there and answered with the login prompt rather than a menu
+ *    they are not entitled to.
  */
 function keyboardFor(telegramId: string, hasAccount: boolean): InlineKeyboard | undefined {
-  if (isLoggedIn(telegramId)) return undefined;
+  if (isLoggedIn(telegramId)) return mainMenuButton();
   return hasAccount ? loginKeyboard : registerKeyboard;
 }
 
-export { start };
+export { start, keyboardFor };

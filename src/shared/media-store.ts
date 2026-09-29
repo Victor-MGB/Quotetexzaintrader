@@ -1,4 +1,4 @@
-import { env, isProd } from "../core/config.js";
+import { isProd } from "../core/config.js";
 import { logger } from "../core/logger.js";
 
 /**

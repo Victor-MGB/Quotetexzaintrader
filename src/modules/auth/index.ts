@@ -2,7 +2,7 @@ import { Composer, InlineKeyboard, type NextFunction } from "grammy";
 import type { AppContext } from "../../core/bot.js";
 import { hashPassword, verifyPassword } from "./password.js";
 import { clearFlow, getFlow, setFlow } from "./state.js";
-import { isLoggedIn, login, logout } from "./session.js";
+import { login, logout } from "./session.js";
 import { createUser, findUserByEmail, findUserByTelegramId } from "./users.js";
 
 const auth = new Composer<AppContext>();
@@ -85,6 +85,12 @@ auth.on("message:text", async (ctx, next: NextFunction) => {
   if (!entry) return next();
 
   const text = ctx.message.text.trim();
+  // A command is never an email or a password. Without this, a member who
+  // remembered /start or /logout halfway through registering had it stored as
+  // their password, and one who typed it at the confirm step was told the two
+  // passwords did not match and pushed back a step for typing the one thing
+  // that would have got them out.
+  if (text.startsWith("/")) return next();
 
   if (entry.flow === "register-email") {
     const email = text.toLowerCase();

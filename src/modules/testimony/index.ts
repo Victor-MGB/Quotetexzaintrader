@@ -221,6 +221,9 @@ testimony.on("message:text", async (ctx, next: NextFunction) => {
   if (!draft) return next();
 
   const text = ctx.message.text.trim();
+  // A command is never a testimony, so let it reach its own handler rather than
+  // publishing it and throwing the draft away.
+  if (text.startsWith("/")) return next();
   drafting.delete(id);
 
   if (text.length < 10) {

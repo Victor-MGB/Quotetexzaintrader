@@ -1,9 +1,8 @@
 import type { BotCommand } from "@grammyjs/types";
 import type { User } from "@grammyjs/types";
 import { bot } from "../core/bot.js";
-import { adminIds } from "../core/config.js";
 import { logger } from "../core/logger.js";
-import { isAllowed } from "./admin/store.js";
+import { isAdmin, isAllowed } from "./admin/store.js";
 
 const cache = new Map<number, string>();
 
@@ -59,7 +58,11 @@ const MENUS: Record<"admin" | "user" | "restricted", MenuRole> = {
 
 export function roleFor(id: string | number): "admin" | "user" | "restricted" {
   const sid = String(id);
-  if (adminIds.includes(sid)) return "admin";
+  // isAdmin and not adminIds: a runtime promotion is just as real an admin as
+  // one written in ADMIN_IDS, and every other check already treats it that way.
+  // isAllowed answers true for admins too, so anything but an isAdmin test here
+  // would file a promoted admin under "user" and hide the admin commands.
+  if (isAdmin(sid)) return "admin";
   if (isAllowed(sid)) return "user";
   return "restricted";
 }

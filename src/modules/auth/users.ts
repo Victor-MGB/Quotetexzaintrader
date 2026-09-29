@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, or, sql } from "drizzle-orm";
+import { desc, eq, gte, or, sql } from "drizzle-orm";
 import { db } from "../../core/db.js";
 import { accessRequests, admins, referrals, testimonies, transactions, users, whitelist } from "../../db/schema.js";
 
@@ -43,6 +43,15 @@ export interface PurgeResult {
   adminPromotions: number;
   /** True when the account row itself went, as opposed to only leftovers. */
   hadAccount: boolean;
+  /**
+   * Whether the member was successfully told they were deleted.
+   *
+   * Not a property of the delete — it is set afterwards, by whoever did the
+   * notifying, and defaults to true because a caller that deleted silently has
+   * made no claim to be truthful. A member who has blocked the bot cannot be
+   * reached, and the admin who deleted them has no other way to find out.
+   */
+  notified?: boolean;
 }
 
 /**

@@ -2,6 +2,7 @@ import { Composer, InlineKeyboard } from "grammy";
 import type { AppContext } from "../../core/bot.js";
 import { describeDeposit, describeDepositStatus } from "../../core/settings.js";
 import { escapeHtml } from "../../shared/html.js";
+import { requireAdmin } from "../../shared/requireAdmin.js";
 import {
   countUsers,
   countUsersSince,
@@ -10,7 +11,6 @@ import { WALLETS } from "../main/content.js";
 import { grandTotals } from "../referrals/store.js";
 import { countPending as countPendingTestimonies } from "../testimony/store.js";
 import {
-  isAdmin,
   isLocked,
   isPermanentAdmin,
   listAdmins,
@@ -23,10 +23,6 @@ import { describeTransaction } from "../transactions/admin.js";
 import { countByStatus, listByStatus } from "../transactions/store.js";
 
 const dash = new Composer<AppContext>();
-
-function guard(ctx: AppContext): boolean {
-  return isAdmin(String(ctx.from?.id ?? 0));
-}
 
 function adminKeyboard(pending: number, testimonyPending: number): InlineKeyboard {
   const kb = new InlineKeyboard()
@@ -75,7 +71,7 @@ async function buildAdminDashboard(): Promise<{ text: string; pending: number; t
 }
 
 dash.command("admin", async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const { text, pending, testimonyPending } = await buildAdminDashboard();
   const kb = adminKeyboard(pending, testimonyPending);
@@ -83,7 +79,7 @@ dash.command("admin", async (ctx) => {
 });
 
 dash.callbackQuery("admin:dashboard", async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
   await ctx.answerCallbackQuery();
 
   const { text, pending, testimonyPending } = await buildAdminDashboard();
@@ -92,7 +88,7 @@ dash.callbackQuery("admin:dashboard", async (ctx) => {
 });
 
 dash.callbackQuery("admin:admins", async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
   await ctx.answerCallbackQuery();
 
   const entries = await listAdmins();
@@ -119,7 +115,7 @@ function idFromArgs(ctx: AppContext): string | null {
 }
 
 dash.command("promote", async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const target = idFromArgs(ctx);
   if (!target) {
@@ -145,7 +141,7 @@ dash.command("promote", async (ctx) => {
 });
 
 dash.command("demote", async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const self = String(ctx.from?.id ?? 0);
   const target = idFromArgs(ctx);
@@ -166,7 +162,10 @@ dash.command("demote", async (ctx) => {
   }
 
   const removed = await demoteAdmin(target);
+  // Same as /promote: drop the cached role and push the new list, or the demoted
+  // admin keeps the admin commands in their chat menu until they send something.
   invalidateMenu(Number(target));
+  await refreshMenu({ id: Number(target), is_bot: false, first_name: "" }).catch(() => undefined);
   await ctx.reply(
     removed
       ? `⛔ <code>${escapeHtml(target)}</code> is no longer an admin.`
@@ -178,7 +177,7 @@ dash.command("demote", async (ctx) => {
 const QUEUE_PER_PAGE = 6;
 
 dash.callbackQuery(/^admin:txn_queue_(\d+)$/, async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const page = Number(ctx.match[1] ?? 0);
   const rows = await listByStatus("pending", 100);

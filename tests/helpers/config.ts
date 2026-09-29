@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { LOOPBACK_DB_HOSTS } from "../../src/shared/database-target.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const REPO_ROOT = resolve(here, "../..");
@@ -46,15 +47,14 @@ export const TEST_DATABASE_URL = `postgresql://${testDb.user}:${testDb.password}
 
 /**
  * Loopback aliases that count as "not production" no matter what the config
- * says. A test database is only ever reached over these.
+ * says. A test database is only ever reached over these. The generic loopback
+ * list is shared with scripts/delete-user.ts so the two guards cannot drift; the
+ * container's own host and name are added here because only the test config
+ * knows them.
  */
 export const LOCAL_HOSTS: ReadonlySet<string> = new Set([
+  ...LOOPBACK_DB_HOSTS,
   testDb.host,
-  "localhost",
-  "127.0.0.1",
-  "0.0.0.0",
-  "::1",
-  "[::1]",
   testDb.container,
 ]);
 

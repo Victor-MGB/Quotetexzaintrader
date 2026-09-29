@@ -6,6 +6,7 @@ import { logger } from "../../core/logger.js";
 import { escapeHtml } from "../../shared/html.js";
 import { MEDIA_LIBRARY, mediaKindFor, saveMedia } from "../../shared/media.js";
 import { downloadSafely, resolveUpload, sizeRejected, type AcceptedUpload } from "../../shared/telegram-media.js";
+import { requireAdmin } from "../../shared/requireAdmin.js";
 import { PLANS } from "../plans/plans.js";
 import { testimonyBody } from "../testimony/card.js";
 import {
@@ -62,12 +63,6 @@ function liveDraft(id: string): AdminDraft | null {
   }
 
   return draft;
-}
-
-function guard(ctx: AppContext): boolean {
-  if (isAdmin(String(ctx.from?.id ?? 0))) return true;
-  void ctx.answerCallbackQuery("Admins only").catch(() => undefined);
-  return false;
 }
 
 function hubKeyboard(pending: number): InlineKeyboard {
@@ -141,13 +136,13 @@ function deleteButton(row: TestimonyRow): { text: string; data: string } {
 }
 
 testimonyAdmin.callbackQuery("tstadmin:menu", async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
   await ctx.answerCallbackQuery();
   await showHub(ctx);
 });
 
 testimonyAdmin.callbackQuery("tstadmin:new", async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
   await ctx.answerCallbackQuery();
 
   const id = String(ctx.from?.id ?? 0);
@@ -174,7 +169,7 @@ Anything you type here is what members will see. It does not have to be yours.`,
 });
 
 testimonyAdmin.callbackQuery("tstadmin:name_me", async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const id = String(ctx.from?.id ?? 0);
   const name = [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(" ").trim() || "Anonymous member";
@@ -191,7 +186,7 @@ Step 2 of 4 — which plan did this member trade?`,
 });
 
 testimonyAdmin.callbackQuery("tstadmin:name_custom", async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const draft = liveDraft(String(ctx.from?.id ?? 0));
   if (draft) draft.step = "name";
@@ -201,7 +196,7 @@ testimonyAdmin.callbackQuery("tstadmin:name_custom", async (ctx) => {
 });
 
 testimonyAdmin.callbackQuery(/^tstadmin:p_(.+)$/, async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const id = String(ctx.from?.id ?? 0);
   const draft = liveDraft(id);
@@ -242,7 +237,7 @@ Step 4 of 4 — send the message itself. Write it in the member's voice.`,
 }
 
 testimonyAdmin.callbackQuery(/^tstadmin:m_(-?\d+)$/, async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const id = String(ctx.from?.id ?? 0);
   const draft = liveDraft(id);
@@ -255,7 +250,7 @@ testimonyAdmin.callbackQuery(/^tstadmin:m_(-?\d+)$/, async (ctx) => {
 });
 
 testimonyAdmin.callbackQuery("tstadmin:m_upload", async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const draft = liveDraft(String(ctx.from?.id ?? 0));
   if (draft) {
@@ -322,6 +317,10 @@ testimonyAdmin.on("message:text", async (ctx, next: NextFunction) => {
   if (!draft) return next();
 
   const text = ctx.message.text.trim();
+  // A command is never a name or a testimony, and this composer sits ahead of
+  // the admin one, so without this an open draft would swallow /allow, /promote
+  // and the rest and turn them into display names.
+  if (text.startsWith("/")) return next();
 
   if (draft.step === "name") {
     if (text.length < 2) {
@@ -376,7 +375,7 @@ testimonyAdmin.on("message:text", async (ctx, next: NextFunction) => {
 });
 
 testimonyAdmin.callbackQuery("tstadmin:rewrite", async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
   const draft = liveDraft(String(ctx.from?.id ?? 0));
   if (draft) draft.step = "message";
   await ctx.answerCallbackQuery("Send it again");
@@ -384,7 +383,7 @@ testimonyAdmin.callbackQuery("tstadmin:rewrite", async (ctx) => {
 });
 
 testimonyAdmin.callbackQuery("tstadmin:change_media", async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
   const draft = liveDraft(String(ctx.from?.id ?? 0));
   if (draft) draft.step = "media";
   await ctx.answerCallbackQuery("Pick media");
@@ -392,7 +391,7 @@ testimonyAdmin.callbackQuery("tstadmin:change_media", async (ctx) => {
 });
 
 testimonyAdmin.callbackQuery("tstadmin:publish", async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const id = String(ctx.from?.id ?? 0);
   const draft = liveDraft(id);
@@ -426,14 +425,14 @@ testimonyAdmin.callbackQuery("tstadmin:publish", async (ctx) => {
 });
 
 testimonyAdmin.callbackQuery("tstadmin:discard", async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
   drafts.delete(String(ctx.from?.id ?? 0));
   await ctx.answerCallbackQuery("Discarded");
   await showHub(ctx, "🗑 Draft discarded.");
 });
 
 testimonyAdmin.callbackQuery("tstadmin:manage", async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
   await ctx.answerCallbackQuery();
 
   const rows = await listPublished(50);
@@ -469,7 +468,7 @@ testimonyAdmin.callbackQuery("tstadmin:manage", async (ctx) => {
  * put it back. An accidental tap costs one extra tap, not a retyped testimony.
  */
 testimonyAdmin.callbackQuery(/^tstadmin:del_(\d+)$/, async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const id = Number(ctx.match[1]);
   const removed = await softDelete(id);
@@ -494,7 +493,7 @@ testimonyAdmin.callbackQuery(/^tstadmin:del_(\d+)$/, async (ctx) => {
 });
 
 testimonyAdmin.callbackQuery(/^tstadmin:undo_(\d+)$/, async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const id = Number(ctx.match[1]);
   const restored = await setStatus(id, "deleted", "published");
@@ -512,7 +511,7 @@ testimonyAdmin.callbackQuery(/^tstadmin:undo_(\d+)$/, async (ctx) => {
 });
 
 testimonyAdmin.callbackQuery("tstadmin:queue", async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
   await ctx.answerCallbackQuery();
 
   const rows = await listPending(20);
@@ -547,7 +546,7 @@ testimonyAdmin.callbackQuery("tstadmin:queue", async (ctx) => {
 });
 
 testimonyAdmin.callbackQuery(/^tstadmin:ok_(\d+)$/, async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const id = Number(ctx.match[1]);
   const published = await setStatus(id, "pending", "published");
@@ -569,7 +568,7 @@ testimonyAdmin.callbackQuery(/^tstadmin:ok_(\d+)$/, async (ctx) => {
 
 /** A rejection is recorded as a removal rather than a third state: the effect on the feed is identical. */
 testimonyAdmin.callbackQuery(/^tstadmin:no_(\d+)$/, async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const id = Number(ctx.match[1]);
   const removed = await setStatus(id, "pending", "deleted");

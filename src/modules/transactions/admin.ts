@@ -4,6 +4,7 @@ import { bot } from "../../core/bot.js";
 import { adminIds } from "../../core/config.js";
 import { logger } from "../../core/logger.js";
 import { escapeHtml } from "../../shared/html.js";
+import { requireAdmin } from "../../shared/requireAdmin.js";
 import { isAdmin } from "../admin/store.js";
 import { walletByKey } from "../main/content.js";
 import { findTransaction, settle, type TransactionRow } from "./store.js";
@@ -18,12 +19,6 @@ const STATUS_ICON: Record<TransactionRow["status"], string> = {
   approved: "✅",
   rejected: "❌",
 };
-
-function guard(ctx: AppContext): boolean {
-  if (isAdmin(String(ctx.from?.id ?? 0))) return true;
-  void ctx.answerCallbackQuery("Admins only").catch(() => undefined);
-  return false;
-}
 
 function typeLabel(row: TransactionRow): string {
   if (row.type === "deposit") return "💳 Deposit";
@@ -74,7 +69,7 @@ export async function notifyAdminsTransaction(row: TransactionRow, header: strin
 }
 
 txn.callbackQuery(/^admin:txn_approve_(\d+)$/, async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const id = Number(ctx.match[1]);
   const row = await findTransaction(id);
@@ -128,7 +123,7 @@ The request stays pending. Top the balance up from Users, or reject it.`;
 }
 
 txn.callbackQuery(/^admin:txn_reject_(\d+)$/, async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
 
   const id = Number(ctx.match[1]);
   const result = await settle(id, "rejected");
@@ -139,7 +134,7 @@ txn.callbackQuery(/^admin:txn_reject_(\d+)$/, async (ctx) => {
 });
 
 txn.callbackQuery(/^admin:txn_cancel_(\d+)$/, async (ctx) => {
-  if (!guard(ctx)) return;
+  if (!(await requireAdmin(ctx))) return;
 
   // Abandons the prompt only. The transaction stays pending and the amount is never guessed.
   awaitingAmount.delete(String(ctx.from?.id ?? 0));
